@@ -1,7 +1,9 @@
 import { api, apiBlob } from './api.ts'
 import { notify } from './bus.ts'
 import { del, get, getAll, metaGet, metaPut, put, rq, withTx } from './db.ts'
+import { sha256Hex } from './hash.ts'
 import { applyOp } from './projection.ts'
+import { uuid } from './uuid.ts'
 import type { BlobRec, Envelope, Message, MessageFields, OpInput, Projection, Role, RoleFields } from './types.ts'
 
 export const MAX_ATTACHMENT = 20 * 1024 * 1024
@@ -20,7 +22,7 @@ export function device(): Device {
     /* regenerate */
   }
   const d: Device = {
-    id: crypto.randomUUID(),
+    id: uuid(),
     name: `${navigator.platform || 'Web'} 浏览器`,
   }
   localStorage.setItem(DEVICE_KEY, JSON.stringify(d))
@@ -34,7 +36,7 @@ export async function localWrite(input: OpInput): Promise<Envelope> {
     const seqRec = await rq<{ key: string; value: number } | undefined>(tx.objectStore('meta').get('seq'))
     const seq = (seqRec?.value ?? 0) + 1
     const e = {
-      op_id: crypto.randomUUID(),
+      op_id: uuid(),
       device_id: device().id,
       seq,
       client_created_at: nowIso(),
@@ -63,7 +65,7 @@ export function createRole(fields: { name: string; avatar: string; color: string
   const t = nowIso()
   return localWrite({
     type: 'role.create',
-    payload: { id: crypto.randomUUID(), name: fields.name, avatar: fields.avatar, color: fields.color, pinned: false, hidden: false, created_at: t, updated_at: t },
+    payload: { id: uuid(), name: fields.name, avatar: fields.avatar, color: fields.color, pinned: false, hidden: false, created_at: t, updated_at: t },
   })
 }
 
@@ -80,7 +82,7 @@ export function createMessage(roleId: string, opts: { type?: Message['type']; te
   return localWrite({
     type: 'message.create',
     payload: {
-      id: crypto.randomUUID(),
+      id: uuid(),
       role_id: roleId,
       type: opts.type ?? 'text',
       text: opts.text ?? '',
@@ -105,11 +107,6 @@ export function deleteMessage(id: string): Promise<Envelope> {
 
 export function setTodoDone(id: string, done: boolean): Promise<Envelope> {
   return localWrite({ type: 'todo.set_done', payload: { id, done, updated_at: nowIso() } })
-}
-
-export async function sha256Hex(buf: ArrayBuffer): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', buf)
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 
 export async function stashBlob(file: File): Promise<string> {
