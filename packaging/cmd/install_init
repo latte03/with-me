@@ -1,0 +1,12 @@
+#!/bin/bash
+# 装前闸门：载荷是 linux/amd64 单二进制，架构不符就提前失败并给用户可见原因。
+set -u
+arch=$(uname -m)
+case "$arch" in
+  x86_64|amd64) exit 0 ;;
+  *)
+    printf 'with-me 需要 x86_64 设备，当前架构是 %s。\n' "$arch" \
+      > "${TRIM_TEMP_LOGFILE:-/dev/stderr}"
+    exit 1
+    ;;
+esac

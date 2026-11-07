@@ -1,0 +1,9 @@
+# fnOS 生命周期脚本由 bash 解析，CRLF 会在 shebang 处失败；换机器 clone 也钉成 LF
+packaging/manifest text eol=lf
+packaging/cmd/* text eol=lf
+packaging/config/* text eol=lf
+packaging/wizard/* text eol=lf
+packaging/app/runtime.sh text eol=lf
+packaging/app/ui/config text eol=lf
+scripts/*.sh text eol=lf
+scripts/*.py text eol=lf

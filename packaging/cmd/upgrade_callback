@@ -1,0 +1,9 @@
+#!/bin/bash
+# 升级完成：数据在 @appdata，原样保留；补执行位后拉起新版本。
+set -u
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "${TRIM_APPDEST:-$HERE/../target}/runtime.sh"
+
+mkdir -p "$APP_DATA"
+chmod +x "$APP_BIN" 2>/dev/null
+bash "$HERE/main" start

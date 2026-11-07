@@ -1,0 +1,76 @@
+#!/bin/bash
+# with-me 生命周期：start | stop | status。以包用户执行，不拿 root。
+set -u
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "${TRIM_APPDEST:-$HERE/../target}/runtime.sh"
+
+log_msg() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$APP_LOG"; }
+alive() { [ -n "${1:-}" ] && kill -0 "$1" 2>/dev/null; }
+
+read_pid() {
+  [ -r "$APP_PID" ] || return 1
+  head -n 1 "$APP_PID" | tr -d '[:space:]'
+}
+
+running() {
+  pid=$(read_pid) || return 1
+  [ -n "$pid" ] || return 1
+  if alive "$pid"; then return 0; fi
+  rm -f "$APP_PID"
+  return 1
+}
+
+start_process() {
+  if running; then
+    log_msg "已在运行（pid $(read_pid)），跳过启动"
+    return 0
+  fi
+  mkdir -p "$APP_DATA"
+  # Windows 侧出的包在 NTFS 上没有执行位，装到飞牛后要补一次
+  chmod +x "$APP_BIN" 2>/dev/null
+  [ -x "$APP_BIN" ] || { log_msg "缺少可执行文件 $APP_BIN"; return 1; }
+  log_msg "启动：$APP_BIN（端口 $APP_PORT，数据 $APP_DATA）"
+  cd "$APP_ROOT" || return 1
+  nohup "$APP_BIN" -addr ":$APP_PORT" -data "$APP_DATA" -web "$APP_WEB" >> "$APP_LOG" 2>&1 &
+  pid=$!
+  printf '%s' "$pid" > "$APP_PID"
+  sleep 1
+  if alive "$pid"; then
+    log_msg "已启动 pid=$pid"
+    return 0
+  fi
+  log_msg "启动失败：1 秒内进程退出。看 $APP_LOG"
+  rm -f "$APP_PID"
+  return 1
+}
+
+stop_process() {
+  pid=$(read_pid) || { log_msg "没有 pidfile，算已停止"; return 0; }
+  if ! alive "$pid"; then
+    rm -f "$APP_PID"
+    log_msg "进程已不在，清理 pidfile"
+    return 0
+  fi
+  log_msg "停止 pid=$pid（TERM）"
+  kill -TERM "$pid" 2>/dev/null
+  count=0
+  while alive "$pid" && [ "$count" -lt 10 ]; do
+    sleep 1
+    count=$((count + 1))
+  done
+  if alive "$pid"; then
+    log_msg "10 秒未退出，KILL"
+    kill -KILL "$pid" 2>/dev/null
+    sleep 1
+  fi
+  rm -f "$APP_PID"
+  log_msg "已停止"
+  return 0
+}
+
+case "${1:-}" in
+  start)  start_process ;;
+  stop)   stop_process ;;
+  status) if running; then exit 0; else exit 3; fi ;;
+  *)      exit 1 ;;
+esac

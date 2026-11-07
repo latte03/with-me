@@ -1,0 +1,9 @@
+#!/bin/bash
+# 安装完成：备数据目录、补执行位、拉起服务。
+set -u
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "${TRIM_APPDEST:-$HERE/../target}/runtime.sh"
+
+mkdir -p "$APP_DATA"
+chmod +x "$APP_BIN" 2>/dev/null
+bash "$HERE/main" start

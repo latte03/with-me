@@ -1,0 +1,6 @@
+#!/bin/bash
+# 升级前：停掉旧进程；载荷在 target/ 里，fnOS 会整体替换。
+set -u
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+bash "$HERE/main" stop
+exit 0

@@ -1,0 +1,6 @@
+#!/bin/bash
+# 卸载：只停进程；@appdata 里的数据默认保留（实测卸载不会删它）。
+set -u
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+bash "$HERE/main" stop
+exit 0

@@ -1,0 +1,6 @@
+#!/bin/bash
+# 设置页没有可改项；保留重启语义，将来加字段时在这里合并写 env 再重启。
+set -u
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+bash "$HERE/main" stop
+bash "$HERE/main" start
