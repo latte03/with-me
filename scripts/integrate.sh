@@ -18,17 +18,24 @@ echo "== build server =="
 (cd "$ROOT/server" && go build -o "$ROOT/bin/withme.exe" ./cmd/withme)
 
 DATA="$(mktemp -d "$TMP/withme-data-XXXXXX")"
-echo "== start server (data=$DATA) =="
-"$ROOT/bin/withme.exe" -addr 127.0.0.1:8080 -data "$DATA" -web "$ROOT/web/dist" >"$ROOT/bin/server.log" 2>&1 &
+PORT="${PORT:-8097}"
+export BASE_URL="http://127.0.0.1:$PORT"
+echo "== start server (data=$DATA, port=$PORT) =="
+"$ROOT/bin/withme.exe" -addr "127.0.0.1:$PORT" -data "$DATA" -web "$ROOT/web/dist" >"$ROOT/bin/server.log" 2>&1 &
 SRV=$!
 trap 'kill $SRV 2>/dev/null || true' EXIT
 for i in $(seq 1 50); do
-  if curl -s -o /dev/null http://127.0.0.1:8080/; then break; fi
+  if curl -s -o /dev/null "$BASE_URL/"; then break; fi
   sleep 0.2
 done
+if ! kill -0 "$SRV" 2>/dev/null; then
+  echo "server failed to start (port $PORT in use?):"
+  cat "$ROOT/bin/server.log"
+  exit 1
+fi
 
 echo "== API smoke =="
-node "$ROOT/e2e/api-smoke.mjs" http://127.0.0.1:8080
+node "$ROOT/e2e/api-smoke.mjs" "$BASE_URL"
 
 if [ "$SKIP_UI" = "0" ]; then
   echo "== UI E2E =="

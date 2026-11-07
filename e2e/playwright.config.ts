@@ -5,7 +5,7 @@ export default defineConfig({
   workers: 1,
   reporter: 'list',
   use: {
-    baseURL: 'http://127.0.0.1:8080',
+    baseURL: process.env.BASE_URL || 'http://127.0.0.1:8080',
     channel: 'msedge',
     headless: true,
     serviceWorkers: 'allow',

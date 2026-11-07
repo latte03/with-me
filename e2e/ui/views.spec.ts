@@ -25,7 +25,7 @@ test('calendar day/month aggregates records; search online + offline fallback', 
 
   // calendar day view shows today's record (leave chat view first: it has no tabbar)
   await page.click('.chat .back');
-  await page.getByRole('button', { name: '日历' }).click();
+  await page.click('.tab[data-tab=calendar]');
   await expect(page.locator('.day-row', { hasText: '日历条目甲' })).toBeVisible();
   // month view renders today's cell with previews (only first 2 shown); drill into today
   await page.click('.mode-seg button[data-mode=month]');
@@ -34,7 +34,7 @@ test('calendar day/month aggregates records; search online + offline fallback', 
   await expect(page.locator('.day-row', { hasText: '日历条目甲' })).toBeVisible();
 
   // search online
-  await page.getByRole('button', { name: '聊天' }).click();
+  await page.click('.tab[data-tab=chats]');
   await page.click('.search-pill');
   await page.waitForSelector('.search-input');
   await page.fill('.search-input', '日历条目甲');
