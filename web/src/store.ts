@@ -75,7 +75,7 @@ export function deleteRole(id: string): Promise<Envelope> {
   return localWrite({ type: 'role.delete', payload: { id, updated_at: nowIso() } })
 }
 
-export function createMessage(roleId: string, opts: { type?: Message['type']; text?: string; attachmentRef?: string }): Promise<Envelope> {
+export function createMessage(roleId: string, opts: { type?: Message['type']; text?: string; attachmentRef?: string; width?: number; height?: number }): Promise<Envelope> {
   const t = nowIso()
   return localWrite({
     type: 'message.create',
@@ -85,6 +85,8 @@ export function createMessage(roleId: string, opts: { type?: Message['type']; te
       type: opts.type ?? 'text',
       text: opts.text ?? '',
       attachment_ref: opts.attachmentRef ?? '',
+      ...(opts.width ? { width: opts.width } : {}),
+      ...(opts.height ? { height: opts.height } : {}),
       side: 'right',
       todo_done: false,
       created_at: t,
@@ -115,6 +117,29 @@ export async function stashBlob(file: File): Promise<string> {
   const existing = await get<BlobRec>('blobs', hash)
   if (!existing) await put('blobs', { hash, blob: file, thumb: null, mime: file.type, size: file.size, pending: true } satisfies BlobRec)
   return hash
+}
+
+export async function imageDimensions(file: File): Promise<{ width: number; height: number } | undefined> {
+  try {
+    const bmp = await createImageBitmap(file)
+    const d = { width: bmp.width, height: bmp.height }
+    bmp.close()
+    return d
+  } catch {
+    return new Promise((resolve) => {
+      const url = URL.createObjectURL(file)
+      const im = new Image()
+      im.onload = () => {
+        URL.revokeObjectURL(url)
+        resolve({ width: im.naturalWidth, height: im.naturalHeight })
+      }
+      im.onerror = () => {
+        URL.revokeObjectURL(url)
+        resolve(undefined)
+      }
+      im.src = url
+    })
+  }
 }
 
 const urlCache = new Map<string, string>()

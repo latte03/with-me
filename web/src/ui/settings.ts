@@ -4,6 +4,7 @@ import { closeDB } from '../store.ts'
 import { onSync, syncNow } from '../sync.ts'
 import type { AdminUser, DeviceInfo, MeInfo } from '../types.ts'
 import { confirmModal, download, el, esc, formModal, icon, toast } from './dom.ts'
+import { setThemePref, themePref, type ThemePref } from '../theme.ts'
 
 export function mountSettings(root: HTMLElement, onLogout: () => void): () => void {
   const session = getSession()
@@ -22,10 +23,17 @@ export function mountSettings(root: HTMLElement, onLogout: () => void): () => vo
           <div class="btn-row"><button class="btn ghost pwd">修改密码</button><button class="btn danger logout">退出登录</button></div>
         </section>
         <section class="card">
+          <h3>${icon('sun', 16)} 外观</h3>
+          <div class="seg theme-seg" role="group" aria-label="主题">
+            <button data-pref="light">浅色</button><button data-pref="dark">深色</button><button data-pref="auto">自动</button>
+          </div>
+          <p class="dim small-text">自动跟随系统外观</p>
+        </section>
+        <section class="card">
           <h3>${icon('device', 16)} 设备</h3>
           <div class="device-list dim">加载中…</div>
         </section>
-        <section class="card">
+        <section class="card storage-card">
           <h3>${icon('download', 16)} 存储与导出</h3>
           <div class="quota"><div class="quota-bar"><i></i></div><p class="dim quota-text"></p></div>
           <div class="btn-row"><button class="btn ghost exp-json">JSON</button><button class="btn ghost exp-md">Markdown</button><button class="btn ghost exp-zip">ZIP（含附件）</button></div>
@@ -39,6 +47,17 @@ export function mountSettings(root: HTMLElement, onLogout: () => void): () => vo
     </div>`)
   root.appendChild(view)
   const syncLine = view.querySelector('.sync-line') as HTMLElement
+  const themeSeg = view.querySelector('.theme-seg') as HTMLElement
+  const paintTheme = () => {
+    themeSeg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', (b as HTMLElement).dataset.pref === themePref()))
+  }
+  themeSeg.querySelectorAll('button').forEach((b) =>
+    b.addEventListener('click', () => {
+      setThemePref((b as HTMLElement).dataset.pref as ThemePref)
+      paintTheme()
+    }),
+  )
+  paintTheme()
   view.querySelector('.sync-now')?.addEventListener('click', () => void syncNow())
   view.querySelector('.persist')?.addEventListener('click', () => {
     void navigator.storage?.persist?.().then((ok) => toast(ok ? '已获得持久化存储' : '浏览器未授予持久化'))

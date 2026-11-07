@@ -109,6 +109,49 @@ export function groupByDay(msgs: Message[]): [string, Message[]][] {
   return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]))
 }
 
+export function imageSections(msgs: Message[], now: Date): { label: string; msgs: Message[] }[] {
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const mondayStart = todayStart - ((now.getDay() + 6) % 7) * 86400000
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime()
+  const today: Message[] = []
+  const week: Message[] = []
+  const month: Message[] = []
+  const older = new Map<number, { label: string; msgs: Message[] }>()
+  for (const m of msgs) {
+    const d = new Date(m.created_at)
+    const t = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+    if (t === todayStart) today.push(m)
+    else if (t >= mondayStart) week.push(m)
+    else if (t >= monthStart) month.push(m)
+    else {
+      const mk = d.getFullYear() * 12 + d.getMonth()
+      const entry = older.get(mk) ?? { label: `${d.getFullYear()}年${d.getMonth() + 1}月`, msgs: [] }
+      entry.msgs.push(m)
+      older.set(mk, entry)
+    }
+  }
+  const sections: { label: string; msgs: Message[] }[] = []
+  if (today.length) sections.push({ label: '今天', msgs: today })
+  if (week.length) sections.push({ label: '本周', msgs: week })
+  if (month.length) sections.push({ label: '本月', msgs: month })
+  for (const mk of [...older.keys()].sort((a, b) => b - a)) sections.push(older.get(mk)!)
+  return sections
+}
+
+export function thumbSize(w: number, h: number, maxEdge: number): { width: number; height: number } {
+  const r = w / h
+  let width: number
+  let height: number
+  if (r >= 1) {
+    width = maxEdge
+    height = r > 3 ? maxEdge / 3 : maxEdge / r
+  } else {
+    height = maxEdge
+    width = 1 / r > 3 ? maxEdge / 3 : maxEdge * r
+  }
+  return { width: Math.round(width), height: Math.round(height) }
+}
+
 export function monthGrid(year: number, month0: number): (string | null)[][] {
   const first = new Date(year, month0, 1)
   const lead = (first.getDay() + 6) % 7

@@ -30,6 +30,8 @@ export interface Message {
   type: MessageType
   text: string
   attachment_ref: string
+  width?: number
+  height?: number
   side: 'right' | 'left'
   todo_done: boolean
   created_at: string

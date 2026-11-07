@@ -31,12 +31,13 @@ const PATHS: Record<string, string> = {
   logout: 'M14 4H6v16h8M10 12h11M18 8l3 4-3 4',
   close: 'M6 6l12 12M18 6L6 18',
   list: 'M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01',
+  grid: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z',
+  sun: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM12 2v2M12 20v2M4 12H2M22 12h-2M5 5l1.5 1.5M17.5 17.5L19 19M5 19l1.5-1.5M17.5 6.5L19 5',
 }
 
-export function icon(name: string, size = 20): string {
+export function icon(name: string, size = 18): string {
   const d = PATHS[name] ?? ''
-  const wide = name === 'dots'
-  return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="${wide ? 3.4 : 1.8}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg>`
+  return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg>`
 }
 
 let toastTimer: number | undefined
@@ -60,8 +61,22 @@ export interface MenuItem {
   onTap?: () => void
 }
 
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+function focusableIn(root: HTMLElement): HTMLElement[] {
+  return [...root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((n) => n.getClientRects().length > 0)
+}
+
+function activeOpener(): HTMLElement | null {
+  const a = document.activeElement
+  return a instanceof HTMLElement && a !== document.body ? a : null
+}
+
+let menuRestore: HTMLElement | null = null
+
 export function openMenu(items: MenuItem[], anchor?: HTMLElement): void {
   closeMenu()
+  menuRestore = activeOpener()
   const overlay = el('<div class="menu-overlay"></div>')
   const menu = el('<div class="menu" role="menu"></div>')
   for (const item of items) {
@@ -75,6 +90,21 @@ export function openMenu(items: MenuItem[], anchor?: HTMLElement): void {
   overlay.appendChild(menu)
   overlay.addEventListener('pointerdown', (e) => {
     if (e.target === overlay) closeMenu()
+  })
+  overlay.addEventListener('keydown', (e) => {
+    const entries = [...menu.querySelectorAll<HTMLElement>('.menu-item')]
+    if (entries.length === 0) return
+    const i = entries.indexOf(document.activeElement as HTMLElement)
+    if (e.key === 'Escape' || e.key === 'Tab') {
+      e.preventDefault()
+      closeMenu()
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      entries[(i + 1) % entries.length].focus()
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      entries[(i - 1 + entries.length) % entries.length].focus()
+    }
   })
   document.body.appendChild(overlay)
   const mw = menu.offsetWidth
@@ -91,10 +121,16 @@ export function openMenu(items: MenuItem[], anchor?: HTMLElement): void {
   }
   menu.style.left = `${x}px`
   menu.style.top = `${y}px`
+  menu.querySelector<HTMLElement>('.menu-item')?.focus()
 }
 
 export function closeMenu(): void {
-  document.querySelector('.menu-overlay')?.remove()
+  const overlay = document.querySelector('.menu-overlay')
+  if (!overlay) return
+  overlay.remove()
+  const restore = menuRestore
+  menuRestore = null
+  if (restore?.isConnected) restore.focus()
 }
 
 export interface Modal {
@@ -103,7 +139,9 @@ export interface Modal {
 }
 
 export function openModal(title: string, body: HTMLElement, foot?: HTMLElement, onClose?: () => void): Modal {
-  const overlay = el(`<div class="modal-overlay"><div class="modal" role="dialog"><div class="modal-head"><h3>${esc(title)}</h3><button class="icon-btn modal-x">${icon('close', 18)}</button></div><div class="modal-body"></div></div></div>`)
+  const opener = activeOpener()
+  const titleId = `modal-title-${Math.random().toString(36).slice(2, 8)}`
+  const overlay = el(`<div class="modal-overlay"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="${titleId}"><div class="modal-head"><h3 id="${titleId}">${esc(title)}</h3><button class="icon-btn modal-x" aria-label="关闭">${icon('close', 18)}</button></div><div class="modal-body"></div></div></div>`)
   const root = overlay.querySelector('.modal') as HTMLElement
   ;(overlay.querySelector('.modal-body') as HTMLElement).appendChild(body)
   if (foot) {
@@ -118,13 +156,44 @@ export function openModal(title: string, body: HTMLElement, foot?: HTMLElement, 
   }
   const close = () => {
     overlay.remove()
+    if (opener?.isConnected) opener.focus()
     onClose?.()
   }
   overlay.addEventListener('pointerdown', (e) => {
     if (e.target === overlay) close()
   })
+  overlay.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      close()
+      return
+    }
+    if (e.key !== 'Tab') return
+    const entries = focusableIn(root)
+    if (entries.length === 0) {
+      e.preventDefault()
+      root.focus()
+      return
+    }
+    const first = entries[0]
+    const last = entries[entries.length - 1]
+    const active = document.activeElement
+    if (e.shiftKey && (active === first || !root.contains(active))) {
+      e.preventDefault()
+      last.focus()
+    } else if (!e.shiftKey && (active === last || !root.contains(active))) {
+      e.preventDefault()
+      first.focus()
+    }
+  })
   ;(overlay.querySelector('.modal-x') as HTMLElement).addEventListener('click', close)
   document.body.appendChild(overlay)
+  const first = focusableIn(root)[0]
+  if (first) first.focus()
+  else {
+    root.tabIndex = -1
+    root.focus()
+  }
   return { close, root }
 }
 

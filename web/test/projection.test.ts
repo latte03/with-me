@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { applyOp, dayKey, groupByDay, monthGrid, searchLocal, timeLabel, weekOf } from '../src/projection.ts'
+import { applyOp, dayKey, groupByDay, imageSections, monthGrid, searchLocal, thumbSize, timeLabel, weekOf } from '../src/projection.ts'
 import type { Envelope, Message, Projection, Role } from '../src/types.ts'
 
 const empty = (): Projection => ({ roles: {}, messages: {} })
@@ -113,4 +113,63 @@ test('dayKey and timeLabel', () => {
   assert.equal(timeLabel(iso, new Date(2026, 10, 7, 9, 0)), '01:50')
   assert.equal(timeLabel(iso, new Date(2026, 10, 8, 9, 0)), '昨天 01:50')
   assert.equal(timeLabel(iso, new Date(2026, 10, 12, 9, 0)), '周六 01:50')
+})
+
+test('thumbSize keeps wechat formula and 3:1 clamp', () => {
+  assert.deepEqual(thumbSize(400, 400, 240), { width: 240, height: 240 })
+  assert.deepEqual(thumbSize(600, 200, 240), { width: 240, height: 80 })
+  assert.deepEqual(thumbSize(900, 300, 240), { width: 240, height: 80 })
+  assert.deepEqual(thumbSize(800, 200, 240), { width: 240, height: 80 })
+  assert.deepEqual(thumbSize(1000, 333, 240), { width: 240, height: 80 })
+  assert.deepEqual(thumbSize(200, 600, 240), { width: 80, height: 240 })
+  assert.deepEqual(thumbSize(300, 900, 240), { width: 80, height: 240 })
+  assert.deepEqual(thumbSize(200, 800, 240), { width: 80, height: 240 })
+  assert.deepEqual(thumbSize(400, 400, 120), { width: 120, height: 120 })
+  assert.deepEqual(thumbSize(997, 700, 240), { width: 240, height: 169 })
+})
+
+const at = (y: number, m: number, d: number, h = 12): string => new Date(y, m - 1, d, h).toISOString()
+
+test('imageSections buckets today/week/month/older with boundaries', () => {
+  const now = new Date(2026, 10, 12, 12, 0)
+  const msgs = [
+    msg('today', { created_at: at(2026, 11, 12, 0) }),
+    msg('week-mon', { created_at: at(2026, 11, 9, 0) }),
+    msg('week-wed', { created_at: at(2026, 11, 11) }),
+    msg('month-sun', { created_at: at(2026, 11, 8) }),
+    msg('month-first', { created_at: at(2026, 11, 1, 0) }),
+    msg('oct-a', { created_at: at(2026, 10, 31) }),
+    msg('oct-b', { created_at: at(2026, 10, 1) }),
+    msg('sep', { created_at: at(2026, 9, 15) }),
+    msg('last-year', { created_at: at(2025, 12, 31) }),
+  ]
+  const sections = imageSections(msgs, now)
+  assert.deepEqual(sections.map((s) => s.label), ['今天', '本周', '本月', '2026年10月', '2026年9月', '2025年12月'])
+  assert.deepEqual(sections[0].msgs.map((m) => m.id), ['today'])
+  assert.deepEqual(sections[1].msgs.map((m) => m.id), ['week-mon', 'week-wed'])
+  assert.deepEqual(sections[2].msgs.map((m) => m.id), ['month-sun', 'month-first'])
+  assert.deepEqual(sections[3].msgs.map((m) => m.id), ['oct-a', 'oct-b'])
+})
+
+test('imageSections on monday has no week bucket; on sunday week starts monday', () => {
+  const monday = new Date(2026, 10, 9, 12, 0)
+  const mon = imageSections([msg('sun', { created_at: at(2026, 11, 8) }), msg('today', { created_at: at(2026, 11, 9, 8) })], monday)
+  assert.deepEqual(mon.map((s) => s.label), ['今天', '本月'])
+  assert.deepEqual(mon[1].msgs.map((m) => m.id), ['sun'])
+  const sunday = new Date(2026, 10, 8, 12, 0)
+  const sun = imageSections(
+    [msg('today', { created_at: at(2026, 11, 8, 9) }), msg('mon', { created_at: at(2026, 11, 2, 0) }), msg('first', { created_at: at(2026, 11, 1, 23) })],
+    sunday,
+  )
+  assert.deepEqual(sun.map((s) => s.label), ['今天', '本周', '本月'])
+  assert.deepEqual(sun[1].msgs.map((m) => m.id), ['mon'])
+  assert.deepEqual(sun[2].msgs.map((m) => m.id), ['first'])
+})
+
+test('imageSections empty input and single bucket', () => {
+  assert.deepEqual(imageSections([], new Date(2026, 10, 12)), [])
+  const only = imageSections([msg('a', { created_at: at(2026, 11, 12, 1) }), msg('b', { created_at: at(2026, 11, 12, 2) })], new Date(2026, 10, 12, 12, 0))
+  assert.equal(only.length, 1)
+  assert.equal(only[0].label, '今天')
+  assert.deepEqual(only[0].msgs.map((m) => m.id), ['a', 'b'])
 })

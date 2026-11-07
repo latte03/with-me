@@ -1,14 +1,14 @@
 import { api, setSession } from '../api.ts'
 import { device } from '../store.ts'
 import type { Session } from '../types.ts'
-import { el } from './dom.ts'
+import { el, icon } from './dom.ts'
 
 export function mountAuth(root: HTMLElement, onDone: () => void): () => void {
   let bootstrap = false
   const view = el(`
     <div class="auth">
       <div class="auth-card">
-        <div class="auth-logo">💬</div>
+        <div class="auth-logo">${icon('chat', 28)}</div>
         <h1>与我</h1>
         <p class="auth-sub">自己给自己发消息 · 本地优先记录</p>
         <form class="form">

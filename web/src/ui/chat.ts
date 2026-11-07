@@ -1,26 +1,27 @@
 import { onChange } from '../bus.ts'
-import { dayKey, timeLabel, visibleMessages } from '../projection.ts'
-import { blobUrl, createMessage, deleteMessage, getAll, MAX_ATTACHMENT, setTodoDone, stashBlob, updateMessage } from '../store.ts'
+import { dayKey, thumbSize, timeLabel, visibleMessages } from '../projection.ts'
+import { blobUrl, createMessage, deleteMessage, getAll, imageDimensions, MAX_ATTACHMENT, setTodoDone, stashBlob, updateMessage } from '../store.ts'
 import { kick } from '../sync.ts'
 import type { Message, Role } from '../types.ts'
-import { openRoleEditor } from './chats.ts'
 import { confirmModal, el, esc, formModal, icon, openMenu, toast } from './dom.ts'
+import { openRoleEditor } from './role-editor.ts'
+import { openViewer } from './viewer.ts'
 
-export function mountChat(root: HTMLElement, roleId: string, highlight: string | undefined, back: () => void): () => void {
+export function mountChat(root: HTMLElement, roleId: string, highlight: string | undefined, back: () => void, onOpenMedia?: () => void): () => void {
   const view = el(`
     <div class="chat">
       <header class="chat-head">
-        <button class="icon-btn back">${icon('back')}</button>
+        <button class="icon-btn back" aria-label="返回">${icon('back')}</button>
         <h2 class="chat-title"></h2>
-        <button class="icon-btn more">${icon('dots')}</button>
+        <button class="icon-btn more" aria-label="更多操作">${icon('dots')}</button>
       </header>
       <div class="msg-list"></div>
       <div class="composer">
-        <div class="todo-chip" hidden>☐ 待办模式 <button class="chip-x">${icon('close', 14)}</button></div>
+        <div class="todo-chip" hidden>${icon('todo', 14)} 待办模式 <button class="chip-x" aria-label="退出待办模式">${icon('close', 14)}</button></div>
         <div class="composer-row">
-          <button class="icon-btn plus">${icon('plus')}</button>
-          <textarea rows="1" placeholder="记录一下…"></textarea>
-          <button class="icon-btn send">${icon('send')}</button>
+          <button class="icon-btn plus" aria-label="附件与待办">${icon('plus')}</button>
+          <textarea rows="1" placeholder="记一条"></textarea>
+          <button class="icon-btn send" aria-label="发送">${icon('send')}</button>
         </div>
         <input type="file" accept="image/*" hidden>
       </div>
@@ -52,7 +53,7 @@ export function mountChat(root: HTMLElement, roleId: string, highlight: string |
   function setTodoMode(on: boolean) {
     todoMode = on
     chip.hidden = !on
-    input.placeholder = on ? '记一件待办…' : '记录一下…'
+    input.placeholder = on ? '记一件待办' : '记一条'
   }
 
   async function send() {
@@ -87,13 +88,52 @@ export function mountChat(root: HTMLElement, roleId: string, highlight: string |
         return
       }
       const hash = await stashBlob(file)
-      await createMessage(roleId, { type: 'image', attachmentRef: hash })
+      const dims = await imageDimensions(file)
+      await createMessage(roleId, { type: 'image', attachmentRef: hash, width: dims?.width, height: dims?.height })
       kick()
       await paint(true)
     })()
   })
 
+  function maxEdge(): number {
+    return window.matchMedia('(min-width: 1024px)').matches ? 240 : Math.min(240, Math.max(120, Math.round(window.innerWidth * 0.36)))
+  }
+
+  function sizeImage(img: HTMLImageElement, m: Message) {
+    if (m.width && m.height) {
+      const s = thumbSize(m.width, m.height, maxEdge())
+      img.style.width = `${s.width}px`
+      img.style.height = `${s.height}px`
+    } else {
+      img.addEventListener('load', () => {
+        if (img.naturalWidth && img.naturalHeight) {
+          const s = thumbSize(img.naturalWidth, img.naturalHeight, maxEdge())
+          img.style.width = `${s.width}px`
+          img.style.height = `${s.height}px`
+        }
+      })
+    }
+  }
+
+  function attachImage(img: HTMLImageElement, m: Message) {
+    sizeImage(img, m)
+    void blobUrl(m.attachment_ref, 'thumb').then((url) => {
+      if (url) img.src = url
+      else img.classList.add('broken')
+    })
+  }
+
   function bubble(m: Message): HTMLElement {
+    if (m.type === 'image' && !m.text) {
+      const row = el(`
+        <div class="msg-row ${m.side === 'left' ? 'left' : 'right'}" data-id="${esc(m.id)}">
+          <button class="img-msg" aria-label="查看图片"><img class="msg-img" alt="图片" data-hash="${esc(m.attachment_ref)}"></button>
+        </div>`)
+      const img = row.querySelector('.msg-img') as HTMLImageElement
+      attachImage(img, m)
+      row.querySelector('.img-msg')?.addEventListener('click', () => void openImage(m))
+      return row
+    }
     const node = el(`
       <div class="msg-row ${m.side === 'left' ? 'left' : 'right'}" data-id="${esc(m.id)}">
         <div class="bubble${m.type === 'todo' ? ' todo' : ''}${m.todo_done ? ' done' : ''}">
@@ -111,13 +151,10 @@ export function mountChat(root: HTMLElement, roleId: string, highlight: string |
     }
     if (m.type === 'image') {
       const img = node.querySelector('.msg-img') as HTMLImageElement
-      void blobUrl(m.attachment_ref, 'thumb').then((url) => {
-        if (url) img.src = url
-        else img.classList.add('broken')
-      })
+      attachImage(img, m)
       img.addEventListener('click', (e) => {
         e.stopPropagation()
-        void openImage(m.attachment_ref)
+        void openImage(m)
       })
     }
     b.addEventListener('click', () => {
@@ -148,13 +185,12 @@ export function mountChat(root: HTMLElement, roleId: string, highlight: string |
     }
   }
 
-  async function openImage(hash: string) {
-    const overlay = el(`<div class="img-overlay"><img alt="原图"><button class="icon-btn img-x">${icon('close')}</button></div>`)
-    const img = overlay.querySelector('img') as HTMLImageElement
-    const url = await blobUrl(hash, 'original')
-    if (url) img.src = url
-    overlay.addEventListener('click', () => overlay.remove())
-    document.body.appendChild(overlay)
+  async function openImage(m: Message) {
+    const imgs = visibleMessages(await getAll<Message>('messages')).filter((x) => x.role_id === roleId && x.type === 'image' && x.attachment_ref)
+    const list = imgs.map((x) => ({ hash: x.attachment_ref }))
+    let idx = imgs.findIndex((x) => x.id === m.id)
+    if (idx < 0) idx = 0
+    openViewer(list, idx, onOpenMedia)
   }
 
   async function paint(forceBottom = false) {

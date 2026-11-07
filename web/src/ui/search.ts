@@ -8,8 +8,8 @@ export function mountSearch(root: HTMLElement, openMessage: (roleId: string, mes
   const view = el(`
     <div class="page">
       <header class="page-head search-head">
-        <button class="icon-btn back">${icon('back')}</button>
-        <input class="search-input" placeholder="搜索全部记录…" autocomplete="off">
+        <button class="icon-btn back" aria-label="返回">${icon('back')}</button>
+        <input class="search-input" placeholder="搜索" autocomplete="off">
       </header>
       <div class="search-results"></div>
     </div>`)

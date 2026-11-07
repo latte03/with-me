@@ -71,8 +71,8 @@ export function mountCalendar(root: HTMLElement, openMessage: (roleId: string, m
         <div class="cal-nav">
           <h2>${selected.getFullYear()}年${selected.getMonth() + 1}月</h2>
           <span class="spacer"></span>
-          <button class="icon-btn prev">${icon('back', 18)}</button>
-          <button class="icon-btn next">${icon('back', 18)}</button>
+          <button class="icon-btn prev" aria-label="上一周">${icon('back', 18)}</button>
+          <button class="icon-btn next" aria-label="下一周">${icon('back', 18)}</button>
         </div>`)
       head.querySelector('.next')?.classList.add('flip')
       head.querySelector('.prev')?.addEventListener('click', () => {
@@ -106,8 +106,8 @@ export function mountCalendar(root: HTMLElement, openMessage: (roleId: string, m
         <div class="cal-nav">
           <h2>${y}年${m0 + 1}月</h2>
           <span class="spacer"></span>
-          <button class="icon-btn prev">${icon('back', 18)}</button>
-          <button class="icon-btn next flip">${icon('back', 18)}</button>
+          <button class="icon-btn prev" aria-label="上个月">${icon('back', 18)}</button>
+          <button class="icon-btn next flip" aria-label="下个月">${icon('back', 18)}</button>
         </div>`)
       head.querySelector('.prev')?.addEventListener('click', () => {
         cursor = new Date(y, m0 - 1, 1)
@@ -145,7 +145,10 @@ export function mountCalendar(root: HTMLElement, openMessage: (roleId: string, m
         }
         grid.appendChild(row)
       }
-      body.appendChild(grid)
+      const split = el('<div class="cal-split"></div>')
+      split.appendChild(grid)
+      split.appendChild(dayList(keyOf(selected)))
+      body.appendChild(split)
     }
   }
 

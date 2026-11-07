@@ -42,14 +42,17 @@
   - avatar = emoji 字符串或 blob hash；color = css color 字符串。
 - `role.update` payload: `{id,updated_at,fields:{name?,avatar?,color?,pinned?,hidden?}}`
 - `role.delete` payload: `{id,updated_at}` → tombstone(deleted=true)
-- `message.create` payload: `{id,role_id,type:"text"|"image"|"todo",text,attachment_ref,side:"right"|"left",todo_done,created_at,updated_at}`
+- `message.create` payload: `{id,role_id,type:"text"|"image"|"todo",text,attachment_ref,width?,height?,side:"right"|"left",todo_done,created_at,updated_at}`
   - type=image 时 attachment_ref=blob hash，text 可为 caption/空。
+  - type=image 时可带 `width`/`height`（图片像素宽高，正整数）：供客户端按微信式比例预布局缩略图（零 CLS）；缺省时客户端在图片 onload 后用 naturalWidth/naturalHeight 回退计算。
   - type=todo 时 todo_done 初始 false。
 - `message.update` payload: `{id,updated_at,fields:{text?,todo_done?}}`
 - `message.delete` payload: `{id,updated_at}` → tombstone
 - `todo.set_done` payload: `{id,done,updated_at}`
 - 投影合并：create=insert；update/set_done=按 cursor 顺序覆盖 fields（LWW）；delete=deleted=true。
 - 查询默认过滤 deleted=true（tombstone 保留供同步收敛）。
+
+> **Additive 兼容（width/height）**：`message.create` 的 `width`/`height` 是可选 additive 字段，旧客户端与历史消息不带时按缺省处理，客户端 onload 回退布局，不影响既有同步。服务端 op-log 以原始 JSON 透传 payload（`message.create` 校验仅解析已知字段、忽略未知字段，不裁剪），pull 原样返回，客户端投影按 payload 原样存储（`{...payload}`），故该字段无需服务端 schema 变更即可端到端贯通。服务端 `messages` 投影表不单独持久化 width/height（仅 op-log 保留），导出/搜索不含该字段；缩略图布局完全由客户端从 op-log 投影读取。
 
 ## 3. 附件 blob（与 op-log 分离）
 - `POST /api/blobs` multipart：field `file`（二进制）+ field `hash`（客户端 sha256 hex）。
