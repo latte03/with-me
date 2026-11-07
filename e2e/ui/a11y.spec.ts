@@ -114,3 +114,55 @@ test('deep links: #/calendar boots to calendar; chat survives reload; back works
   await page.waitForSelector('.role-list');
   await expect(page.locator('.chat')).toHaveCount(0);
 });
+test('mobile type scale: inputs >=16px (no iOS zoom), body text readable', async ({ page }) => {
+  await page.setViewportSize({ width: 402, height: 874 });
+  const fs = (sel: string) =>
+    page.locator(sel).first().evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+
+  await page.goto('/');
+  expect(await fs('input[name=password]')).toBeGreaterThanOrEqual(16);
+
+  await login(page);
+  expect(await fs('html')).toBe(16);
+
+  await page.click('.pill-dots');
+  await page.getByText('新角色', { exact: true }).click();
+  await page.fill('.role-form input[name=name]', '字号会话');
+  await page.getByRole('button', { name: '保存' }).click();
+  await page.waitForSelector('.chat textarea');
+  expect(await fs('.chat textarea')).toBeGreaterThanOrEqual(16);
+
+  await page.fill('.chat textarea', '字号检查');
+  await page.click('.chat .send');
+  await page.waitForSelector('.msg-text');
+  expect(await fs('.msg-text')).toBeGreaterThanOrEqual(16);
+  expect(await fs('.time-sep')).toBeGreaterThanOrEqual(13);
+
+  await page.goBack();
+  await page.waitForSelector('.role-list');
+  expect(await fs('.role-name')).toBeGreaterThanOrEqual(16);
+  expect(await fs('.role-preview')).toBeGreaterThanOrEqual(15);
+});
+
+test('composer: attach / input / send share one height (mobile 44, desktop 36)', async ({ page }) => {
+  await page.setViewportSize({ width: 402, height: 874 });
+  await login(page);
+  await page.click('.pill-dots');
+  await page.getByText('新角色', { exact: true }).click();
+  await page.fill('.role-form input[name=name]', '输入栏会话');
+  await page.getByRole('button', { name: '保存' }).click();
+  await page.waitForSelector('.chat textarea');
+
+  const heights = async () =>
+    page.evaluate(() => ['.composer .plus', '.composer textarea', '.composer .send']
+      .map((s) => (document.querySelector(s) as HTMLElement).offsetHeight));
+
+  const mobile = await heights();
+  expect(new Set(mobile).size, `mobile heights ${mobile.join('/')}`).toBe(1);
+  expect(mobile[0]).toBe(44);
+
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const desktop = await heights();
+  expect(new Set(desktop).size, `desktop heights ${desktop.join('/')}`).toBe(1);
+  expect(desktop[0]).toBe(36);
+});
