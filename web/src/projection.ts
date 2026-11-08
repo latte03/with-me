@@ -1,3 +1,4 @@
+import { clipPreviewLabel } from './clip-core.ts'
 import type { Envelope, Message, Projection, Role, SearchResult } from './types.ts'
 
 export function applyOp(p: Projection, env: Envelope): void {
@@ -85,6 +86,7 @@ export function shortDay(iso: string, now = new Date()): string {
 }
 
 export function previewOf(m: Message): string {
+  if (m.type === 'clip' && m.meta) return clipPreviewLabel(m.meta)
   if (m.type === 'image') return m.text ? `[图片] ${m.text}` : '[图片]'
   if (m.type === 'todo') return `${m.todo_done ? '✓' : '☐'} ${m.text}`
   return m.text

@@ -1,4 +1,4 @@
-import { api, apiBlob } from './api.ts'
+import { api, apiBlob, getSession } from './api.ts'
 import { notify } from './bus.ts'
 import { del, get, getAll, metaGet, metaPut, put, rq, withTx } from './db.ts'
 import { sha256Hex } from './hash.ts'
@@ -61,11 +61,14 @@ export async function localWrite(input: OpInput): Promise<Envelope> {
   return env
 }
 
-export function createRole(fields: { name: string; avatar: string; color: string }): Promise<Envelope> {
+export function createRole(fields: { name: string; avatar: string; color: string; pinned?: boolean; kind?: string }): Promise<Envelope> {
   const t = nowIso()
   return localWrite({
     type: 'role.create',
-    payload: { id: uuid(), name: fields.name, avatar: fields.avatar, color: fields.color, pinned: false, hidden: false, created_at: t, updated_at: t },
+    payload: {
+      id: uuid(), name: fields.name, avatar: fields.avatar, color: fields.color,
+      kind: fields.kind ?? '', pinned: fields.pinned ?? false, hidden: false, created_at: t, updated_at: t,
+    },
   })
 }
 
@@ -77,7 +80,7 @@ export function deleteRole(id: string): Promise<Envelope> {
   return localWrite({ type: 'role.delete', payload: { id, updated_at: nowIso() } })
 }
 
-export function createMessage(roleId: string, opts: { type?: Message['type']; text?: string; attachmentRef?: string; width?: number; height?: number }): Promise<Envelope> {
+export function createMessage(roleId: string, opts: { type?: Message['type']; text?: string; attachmentRef?: string; width?: number; height?: number; meta?: Message['meta'] }): Promise<Envelope> {
   const t = nowIso()
   return localWrite({
     type: 'message.create',
@@ -87,6 +90,7 @@ export function createMessage(roleId: string, opts: { type?: Message['type']; te
       type: opts.type ?? 'text',
       text: opts.text ?? '',
       attachment_ref: opts.attachmentRef ?? '',
+      ...(opts.meta ? { meta: opts.meta } : {}),
       ...(opts.width ? { width: opts.width } : {}),
       ...(opts.height ? { height: opts.height } : {}),
       side: 'right',
@@ -140,6 +144,13 @@ export async function imageDimensions(file: File): Promise<{ width: number; heig
 }
 
 const urlCache = new Map<string, string>()
+
+// Direct stream URL for <video>: blob GET also accepts the session token as a
+// query parameter because a media element cannot set Authorization headers.
+export function blobStreamUrl(hash: string): string {
+  const token = getSession()?.token ?? ''
+  return `/api/blobs/${encodeURIComponent(hash)}?token=${encodeURIComponent(token)}`
+}
 
 export async function blobUrl(hash: string, variant: 'thumb' | 'original' = 'thumb'): Promise<string> {
   const key = `${hash}:${variant}`

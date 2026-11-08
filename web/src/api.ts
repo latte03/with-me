@@ -28,11 +28,11 @@ export class ApiError extends Error {
   }
 }
 
-async function request(path: string, method: string, body?: BodyInit, headers?: Record<string, string>): Promise<Response> {
+async function request(path: string, method: string, body?: BodyInit, headers?: Record<string, string>, signal?: AbortSignal): Promise<Response> {
   const h = new Headers(headers)
   const s = getSession()
   if (s) h.set('Authorization', `Bearer ${s.token}`)
-  const res = await fetch(`/api${path}`, { method, body, headers: h })
+  const res = await fetch(`/api${path}`, { method, body, headers: h, signal })
   if (res.status === 401) {
     clearSession()
     window.dispatchEvent(new CustomEvent('with-me:unauthorized'))
@@ -50,7 +50,7 @@ async function request(path: string, method: string, body?: BodyInit, headers?: 
   return res
 }
 
-export async function api<T>(path: string, opts: { method?: string; body?: unknown } = {}): Promise<T> {
+export async function api<T>(path: string, opts: { method?: string; body?: unknown; signal?: AbortSignal } = {}): Promise<T> {
   let body: BodyInit | undefined
   const headers: Record<string, string> = {}
   if (opts.body instanceof FormData) body = opts.body
@@ -58,7 +58,7 @@ export async function api<T>(path: string, opts: { method?: string; body?: unkno
     body = JSON.stringify(opts.body)
     headers['Content-Type'] = 'application/json'
   }
-  const res = await request(path, opts.method ?? 'GET', body, headers)
+  const res = await request(path, opts.method ?? 'GET', body, headers, opts.signal)
   return (await res.json()) as T
 }
 
