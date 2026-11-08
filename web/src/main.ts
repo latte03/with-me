@@ -1,4 +1,5 @@
 import './style.css'
+import './clip.css'
 import { boot } from './app.ts'
 import { applyTheme } from './theme.ts'
 

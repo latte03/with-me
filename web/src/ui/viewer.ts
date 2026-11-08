@@ -1,8 +1,10 @@
 import { blobUrl } from '../store.ts'
 import { el, icon } from './dom.ts'
+import { openVideoOverlay } from './media.ts'
 
 export interface ViewerItem {
   hash: string
+  liveHash?: string
 }
 
 const EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
@@ -41,9 +43,11 @@ export function openViewer(items: ViewerItem[], index: number, onOpenMedia?: () 
         <div class="img-slide"><img class="slot img-slot" data-slot="next" alt="" draggable="false"><div class="img-fail" hidden>图片加载失败</div></div>
       </div>
       <button class="icon-btn img-x" aria-label="关闭图片">${icon('close')}</button>
+      <button class="img-live" hidden>${icon('play', 16)} 实况</button>
     </div>`)
   const track = overlay.querySelector('.img-track') as HTMLElement
   const count = overlay.querySelector('.img-count') as HTMLElement
+  const liveBtn = overlay.querySelector('.img-live') as HTMLButtonElement
   const slots = {} as Record<SlotName, Slot>
   for (const name of ['prev', 'cur', 'next'] as SlotName[]) {
     const img = overlay.querySelector(`img[data-slot="${name}"]`) as HTMLImageElement
@@ -105,6 +109,7 @@ export function openViewer(items: ViewerItem[], index: number, onOpenMedia?: () 
   }
 
   function fill(): void {
+    liveBtn.hidden = !items[i]?.liveHash
     void loadSlot('prev', i - 1)
     void loadSlot('cur', i)
     void loadSlot('next', i + 1)
@@ -225,6 +230,11 @@ export function openViewer(items: ViewerItem[], index: number, onOpenMedia?: () 
   }
 
   overlay.querySelector('.img-x')?.addEventListener('click', close)
+  liveBtn.addEventListener('click', (e) => {
+    e.stopPropagation()
+    const cur = items[i]
+    if (cur?.liveHash) openVideoOverlay(cur.liveHash, { posterHash: cur.hash, live: true })
+  })
   overlay.addEventListener('pointerdown', onPointerDown)
   overlay.addEventListener('pointermove', onPointerMove)
   overlay.addEventListener('pointerup', endDrag)

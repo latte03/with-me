@@ -1,9 +1,12 @@
 import { onChange } from '../bus.ts'
+import { extractXHSLink } from '../clip-core.ts'
 import { dayKey, thumbSize, timeLabel, visibleMessages } from '../projection.ts'
 import { blobUrl, createMessage, deleteMessage, getAll, imageDimensions, MAX_ATTACHMENT, setTodoDone, stashBlob, updateMessage } from '../store.ts'
 import { kick } from '../sync.ts'
 import type { Message, Role } from '../types.ts'
 import { confirmModal, el, esc, formModal, icon, openMenu, toast } from './dom.ts'
+import { openClipPreview } from './clip-preview.ts'
+import { renderClipCard } from './clip-card.ts'
 import { openRoleEditor } from './role-editor.ts'
 import { openViewer } from './viewer.ts'
 
@@ -59,6 +62,24 @@ export function mountChat(root: HTMLElement, roleId: string, highlight: string |
   async function send() {
     const text = input.value.trim()
     if (!text) return
+    const link = extractXHSLink(text)
+    if (link) {
+      if (link.count > 1) {
+        toast('一次剪一条，其余请逐条发送')
+        return
+      }
+      input.value = ''
+      autosize()
+      openClipPreview({
+        url: link.url,
+        onCancel: () => {
+          input.value = text
+          autosize()
+          input.focus()
+        },
+      })
+      return
+    }
     input.value = ''
     autosize()
     await createMessage(roleId, { type: todoMode ? 'todo' : 'text', text })
@@ -124,6 +145,7 @@ export function mountChat(root: HTMLElement, roleId: string, highlight: string |
   }
 
   function bubble(m: Message): HTMLElement {
+    if (m.type === 'clip') return renderClipCard(m, { onOpenMedia })
     if (m.type === 'image' && !m.text) {
       const row = el(`
         <div class="msg-row ${m.side === 'left' ? 'left' : 'right'}" data-id="${esc(m.id)}">
