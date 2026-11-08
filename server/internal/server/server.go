@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -17,10 +18,22 @@ type Server struct {
 	dataDir string
 	webDir  string
 	fts     bool
+
+	clipCache  *clipCache
+	clipFetch  clipFetcher
+	mediaFetch mediaFetcher
+	mediaMu    sync.Mutex
 }
 
 func New(db *sql.DB, dataDir, webDir string) *Server {
-	s := &Server{db: db, dataDir: dataDir, webDir: webDir}
+	s := &Server{
+		db:         db,
+		dataDir:    dataDir,
+		webDir:     webDir,
+		clipCache:  newClipCache(),
+		clipFetch:  fetchXHS,
+		mediaFetch: fetchXHSMedia,
+	}
 	if _, err := db.Exec(ftsSchema); err == nil {
 		s.fts = true
 	}
@@ -43,6 +56,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/sync/pull", s.auth(s.handlePull))
 	mux.Handle("POST /api/blobs", s.auth(s.handleBlobUpload))
 	mux.Handle("GET /api/blobs/{hash}", s.auth(s.handleBlobGet))
+	mux.Handle("POST /api/clips/parse", s.auth(s.handleClipParse))
+	mux.Handle("POST /api/clips/download", s.auth(s.handleClipDownload))
 	mux.Handle("GET /api/search", s.auth(s.handleSearch))
 	mux.Handle("GET /api/export", s.auth(s.handleExport))
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
@@ -81,8 +96,15 @@ func nowUTC() string {
 
 func (s *Server) auth(next http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if !ok || token == "" {
+		token := ""
+		if t, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok && t != "" {
+			token = t
+		} else if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/blobs/") {
+			// <video> cannot set an Authorization header; same-origin stream URLs may
+			// carry the session token as a query parameter (personal, LAN-first app).
+			token = r.URL.Query().Get("token")
+		}
+		if token == "" {
 			writeErr(w, http.StatusUnauthorized, "missing token")
 			return
 		}
