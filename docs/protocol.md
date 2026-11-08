@@ -38,16 +38,18 @@
 - 客户端流程：联网 → push 本地队列 → pull(本地cursor) 增量 → 应用投影（跳过已应用 op_id）→ 存 cursor。
 
 ### 2.1 op type 与 payload
-- `role.create` payload: `{id,name,avatar,color,pinned,hidden,created_at,updated_at}`
-  - avatar = emoji 字符串或 blob hash；color = css color 字符串。
-- `role.update` payload: `{id,updated_at,fields:{name?,avatar?,color?,pinned?,hidden?}}`
+- `role.create` payload: `{id,name,avatar,color,kind?,pinned,hidden,created_at,updated_at}`
+  - avatar = emoji 字符串或 blob hash；color = css color 字符串；kind 仅允许 `''` 或 `'clips'`（内置剪藏角色标记）。
+- `role.update` payload: `{id,updated_at,fields:{name?,avatar?,color?,kind?,pinned?,hidden?}}`
 - `role.delete` payload: `{id,updated_at}` → tombstone(deleted=true)
-- `message.create` payload: `{id,role_id,type:"text"|"image"|"todo",text,attachment_ref,width?,height?,side:"right"|"left",todo_done,created_at,updated_at}`
+- `message.create` payload: `{id,role_id,type:"text"|"image"|"todo"|"clip",text,attachment_ref,width?,height?,meta?,side:"right"|"left",todo_done,created_at,updated_at}`
   - type=image 时 attachment_ref=blob hash，text 可为 caption/空。
   - type=image 时可带 `width`/`height`（图片像素宽高，正整数）：供客户端按微信式比例预布局缩略图（零 CLS）；缺省时客户端在图片 onload 后用 naturalWidth/naturalHeight 回退计算。
   - type=todo 时 todo_done 初始 false。
-- `message.update` payload: `{id,updated_at,fields:{text?,todo_done?}}`
-- `message.delete` payload: `{id,updated_at}` → tombstone
+  - **type=clip** 时 `meta` 必填，形状见 4.1；服务端校验 `platform`/`note_id` 与媒体 hash 归属，并维护 `clips` 去重投影。`text` 为标题+正文+作者+话题的可搜索纯文本。
+- `message.update` payload: `{id,updated_at,fields:{text?,todo_done?,meta?}}`
+  - `meta` 仅允许用于 type=clip 的消息；用于更新媒体 hash/下载状态。
+- `message.delete` payload: `{id,updated_at}` → tombstone；同时删除该消息的 `clips` 去重映射。
 - `todo.set_done` payload: `{id,done,updated_at}`
 - 投影合并：create=insert；update/set_done=按 cursor 顺序覆盖 fields（LWW）；delete=deleted=true。
 - 查询默认过滤 deleted=true（tombstone 保留供同步收敛）。
@@ -58,21 +60,85 @@
 - `POST /api/blobs` multipart：field `file`（二进制）+ field `hash`（客户端 sha256 hex）。
   - 校验：hash 匹配、size<=20MB、用户配额 5GB（used+size<=quota）。
   - 存原图；若 mime 为 image/* 生成缩略图（最长边 512）。
-  - → `{hash,size,mime,kind:"image"|"audio"|"file",thumb_hash}`（非 image 时 thumb_hash=hash 或空）。
-- `GET /api/blobs/{hash}` → 原二进制（正确 Content-Type）。
+  - → `{hash,size,mime,kind:"image"|"video"|"audio"|"file",thumb_hash}`。
+- `GET /api/blobs/{hash}` → 原二进制（正确 Content-Type，支持 Range）。
 - `GET /api/blobs/{hash}?variant=thumb` → 缩略图（无缩略图时回原图）。
+- 视频流：`GET /api/blobs/{hash}?token=<session>`；仅 GET blob 接受 query token（`<video>` 无法带 Authorization 头）。服务端用 `http.ServeContent` 返回 `206 Partial Content`。
 - 所有权：仅本用户可读写自己的 blob。
 - 离线：客户端先存本地 blob 缓存 + 待传队列，联网补传后再 push 引用它的 message.create。
+- 剪藏媒体由服务端下载入库：图片/封面 ≤30MB、实况 ≤60MB、视频 ≤200MB；域名白名单 `*.xhscdn.com`。
 
 ## 4. 搜索（服务端全文，中文友好）
 - `GET /api/search?q=<text>` → `{results:[{message_id,role_id,role_name,text,created_at,snippet}]}`
 - SQLite FTS5 trigram（子串匹配中文）；过滤 deleted + per-user；按 created_at  desc；limit 50。
 - 客户端离线兜底：本地投影 substring 过滤。
+- clip 消息的 `text` 含标题/正文/作者/话题，因此自动进入搜索。
+
+### 4.1 链接剪藏（二期，v1 仅小红书）
+
+`POST /api/clips/parse` body `{url}` → `{parse_id, existing_message_id?, clip}`。
+- `url` 必须是 `xhslink.cn` / `xhslink.com` / `xiaohongshu.com` 分享链接；服务端带手机 UA 请求公开分享页（不登录、不填 Cookie）。
+- 成功返回解析结果；解析结果在服务端内存缓存 15 分钟，供下载接口使用。
+- `existing_message_id` 非空表示该 `platform+note_id` 已剪藏。
+- 错误为 `{error:"中文提示"}`：链接失效/需要新 token、登录/风控、页面结构变化、网络失败等分类。
+
+`clip` 形状（`ParsedClip`）：
+```json
+{
+  "platform": "xhs",
+  "note_id": "…",
+  "source_url": "https://www.xiaohongshu.com/discovery/item/…?xsec_token=…&xsec_source=app_share",
+  "note_type": "image|video",
+  "title": "…",
+  "body": "…",
+  "author": {"user_id":"…","name":"…","avatar_url":"…"},
+  "published_at": "RFC3339",
+  "note_updated_at": "RFC3339",
+  "stats": {"likes":"2.5万","collects":"3446","comments":"693","shares":"9276"},
+  "tags": ["…"],
+  "content_declaration": "含AI生成内容",
+  "chapters": [{"text":"开场","time_ms":0}],
+  "images": [{"file_id":"…","width":1904,"height":2544,"live":true,"live_size":900000,"preview_url":"…","watermarked":false}],
+  "video": {"file_id":"…","width":1280,"height":720,"duration_ms":56820,"size":4359257,"cover_file_id":"…","cover_width":1920,"cover_height":1080,"preview_url":"…","watermarked":false}
+}
+```
+- 图片 `preview_url` 仅用于预览（可能是 1080 带水印）；下载时才取无水印原图。
+- `video` 仅视频笔记存在；`images` 在视频笔记中为空。
+
+`POST /api/clips/download` body `{parse_id, image_indices:[…], video:bool}` →：
+```json
+{
+  "images":[{"index":0,"status":"ok","hash":"…","live_status":"ok","live_hash":"…"}],
+  "video":{"status":"ok","hash":"…","cover_hash":"…"}
+}
+```
+- 逐项状态；失败的项带 `error`，不导致整条失败。
+- 媒体下载域名仅 `*.xhscdn.com`；图片/封面 ≤30MB、实况 ≤60MB、视频 ≤200MB；计入 5GB 配额。
+- 15 分钟后缓存过期返回 410，客户端需重新 parse。
+
+`clip` 消息的 `meta`（客户端写入 op-log 的形状）：
+```json
+{
+  "platform":"xhs","note_id":"…","source_url":"…","note_type":"image",
+  "title":"…","body":"…",
+  "author":{"user_id":"…","name":"…","avatar_url":"…"},
+  "published_at":"…","note_updated_at":"…",
+  "stats":{},"tags":[],"content_declaration":"","chapters":[],
+  "media":[
+    {"kind":"image","file_id":"…","width":1904,"height":2544,"source_index":0,
+     "live":true,"live_size":900000,"status":"ok","hash":"…","live_status":"ok","live_hash":"…"},
+    {"kind":"video","file_id":"…","width":1280,"height":720,"duration_ms":56820,"size":4359257,
+     "cover_file_id":"…","cover_width":1920,"cover_height":1080,"status":"ok","hash":"…","cover_hash":"…"}
+  ]
+}
+```
+- `status/live_status`: `pending|ok|failed|skipped`；客户端先写 pending，下载成功后用 `message.update(fields.meta)` 回填 hash。
+- 服务端校验 `meta` 内的 hash 必须属于当前用户。
 
 ## 5. 导出
-- `GET /api/export?format=json` → JSON 文档 {user,roles,messages,attachments:[{hash,size,mime}]}。
-- `GET /api/export?format=md` → Markdown（按角色/日期分组）。
-- `GET /api/export?format=zip` → zip（含 data.json + data.md + blobs/<hash> 原图）。
+- `GET /api/export?format=json` → JSON 文档 {user,roles,messages,attachments:[{hash,size,mime}]}；clip 消息带 `meta`。
+- `GET /api/export?format=md` → Markdown（按角色/日期分组；clip 渲染标题/作者/正文/话题/原文/媒体链接）。
+- `GET /api/export?format=zip` → zip（含 data.json + data.md + blobs/<hash> 原图/视频）。
 - 仅本用户数据。
 
 ## 6. 静态 / SPA
@@ -86,4 +152,5 @@
 
 ## 8. 配额 / 限制常量
 - MAX_ATTACHMENT=20*1024*1024；DEFAULT_QUOTA=5*1024*1024*1024（per-user，可配）。
+- 剪藏：图片/封面 ≤30MB、实况 ≤60MB、视频 ≤200MB（服务端下载上限，可配）；parse 缓存 15 分钟。
 - pull 默认 limit=500。

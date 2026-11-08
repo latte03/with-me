@@ -129,6 +129,40 @@
 | 心情 / 位置 / 专注写作 / 发到左边 | 作为消息附加标签 / 编辑模式 / 气泡侧标志 |
 | 聊天背景 / 气泡颜色 | 角色级自定义 |
 | 待办到期日 / 提醒 | 结合 Web Push |
+| 链接剪藏（本期优先） | 粘贴小红书分享链接 → 服务端解析公开分享页 → 提取文案/作者/发布时间/互动数/话题/图片/实况/视频；确认后写入自动置顶的「剪藏」角色；原图无水印落 NAS；支持去重、重新解析、搜索与导出。v1 只支持小红书单条图文/视频笔记。 |
+
+#### 5.2.1 链接剪藏（小红书，二期优先）
+
+**流程**
+1. 在任意角色输入框粘贴小红书分享口令或链接并发送；识别到小红书链接即**拦截**，不写入当前角色。
+2. NAS 服务端用手机 UA 请求**公开分享页**（完整保留 `xsec_token` / `xsec_source`），解析页面内嵌的 `__INITIAL_STATE__`。v1 不做登录、不填 Cookie。
+3. 弹出预览：作者、发布时间、互动数、话题只读；标题/正文可编辑；图片可逐张勾选；视频显示封面、时长、大小。
+4. 确认后：先写入剪藏记录（媒体标记「待下载」），随后后台把选中媒体下载到 NAS blob；失败/超配额不丢整条记录，卡片可重试。
+
+**落点**
+- 首次剪藏自动创建「剪藏」角色并置顶（`kind=clips`，可改名、可删除；删后下次剪藏重建）。
+- 一条剪藏 = 一条 `type=clip` 的结构化消息，`meta` 存平台、笔记 ID、来源、标题、正文、作者、发布时间、互动数、话题、AI 内容声明、章节与媒体清单。
+- 卡片展示：平台徽标、类型、标题、正文（超长折叠）、作者、发布时间、互动数、话题、图片九宫格（实况角标）、视频封面；点开看全文/大图/播放。
+- 卡片操作：打开原文、复制文案、重新解析、删除。
+
+**媒体**
+- 图片优先取**无水印原图**：复用分享页 `normalNotePreloadData` 的 `ext` 签名，改 `imageView2` 宽度按原宽下载；无 `ext` 时退回 1080px 带水印图并在预览中提示。
+- 实况图：静态原图 + 每张约 3 秒的实况 mp4；大图查看时可点「实况」播放。
+- 视频笔记：H.264 优先、H.265 兜底；封面单独入库；应用内播放，blob GET 支持 Range 拖动进度。
+- 限制：图片 ≤20MB/张（引用现有上限）、视频 ≤200MB/条（可配）；计入用户 5GB 配额；媒体下载仅允许 `*.xhscdn.com`（防 SSRF）。
+- 下载时机：预览确认后才下载；取消预览不产生孤儿文件。
+
+**去重 / 重新解析**
+- 按 `platform + note_id` 去重；已剪藏过时提示，可选「更新已有」或取消，不再新建重复记录。
+- 重新解析：保留手改过的标题/正文，只更新元数据、图片与视频；旧链接失效时要求重新复制分享链接。
+
+**搜索 / 导出**
+- 标题、正文、作者、话题写入消息文本，进入现有全文搜索；JSON/Markdown/ZIP 导出包含剪藏 `meta` 与媒体文件。
+
+**失败与边界**
+- 分类提示：链接失效/`xsec_token` 过期 → 请在 App 重新复制分享链接；登录墙/风控 → 稍后重试；页面结构变化 → 暂不支持；网络失败 → 检查 NAS 网络。不自动重试、不换出口硬撞。
+- 一条消息只处理第一个小红书链接；多链提示逐条发送。
+- v1 不抓评论正文（只存评论数）、不做批量/主页/专辑抓取、不支持其他平台；仅个人收藏，不提供再发布能力。
 
 ### 5.3 三期（远期）
 - 原生客户端：iOS / macOS / Windows，照同一份语言中立同步协议实现。
@@ -144,24 +178,27 @@
 ### 6.1 实体
 - **users**：id, username, password_hash, is_admin, quota_bytes, created_at, disabled。
 - **devices**：id, user_id, name, token_hash, last_seq, revoked, last_seen。
-- **roles**：id, user_id, name, avatar, color, pinned, hidden, deleted(tombstone), updated_at, version。
-- **messages**（投影）：id, user_id, role_id, type(text/image/todo), text, todo_done, attachment_ref, side, deleted(tombstone), created_at, updated_at, version。
+- **roles**：id, user_id, name, avatar, color, kind(''|clips), pinned, hidden, deleted(tombstone), updated_at, version。
+- **messages**（投影）：id, user_id, role_id, type(text/image/todo/clip), text, todo_done, attachment_ref, meta(JSON，clip 专用), side, deleted(tombstone), created_at, updated_at, version。
+- **clips**（去重投影）：user_id, platform, note_id, message_id, updated_at；`(user_id, platform, note_id)` 唯一，用于「已剪藏过」判断。
 - **ops**（追加日志）：cursor(PK, autoinc), op_id(uuid, unique), user_id, device_id, seq, type, payload(json), client_created_at, accepted_at。
-- **attachments**：hash(PK), user_id, size, mime, kind(image/audio), thumb_hash, blob_path, created_at。
+- **attachments**：hash(PK), user_id, size, mime, kind(image/video/audio/file), thumb_hash, blob_path, created_at。
 - **sync_cursors**：device_id → last_pulled_cursor。
 - **backups_meta**：id, created_at, path, size, rotation_slot。
 
 ### 6.2 op 类型
 - role.create / role.update(LWW 字段) / role.delete(tombstone)
 - message.create(不可变主体 + 附件引用) / message.update(LWW 可变字段) / message.delete(tombstone)
+- **message.create(type=clip)**：payload 额外带 `meta`（JSON），服务端校验 `platform/note_id` 与媒体 hash 归属，并写入 `clips` 去重投影；`message.update` 可更新 clip 的 `meta`（媒体 hash/状态）与 `text`。
 - todo.set_done(LWW)
 - （二期）message.attach_audio / review.generate 等不进入 op-log 的旁路操作另议。
 
 ### 6.3 附件
 - op-log / messages 只存引用（hash/size/mime）；二进制在 blob 目录。
-- 单附件 ≤ 20MB；每用户配额 5GB（可配）。
+- 单附件 ≤ 20MB；每用户配额 5GB（可配）。剪藏视频例外：服务端下载上限 200MB/条（可配）。
 - 服务端生成缩略图（image）；客户端缓存缩略图、按需拉原图。
 - 离线：blob 先存本地待传队列，联网补传。
+- 视频/实况 mp4 由服务端入库，`GET /api/blobs/{hash}` 支持 Range（视频拖动进度）；剪藏视频可用 `?token=` 直接流式播放。
 
 ---
 
@@ -190,6 +227,8 @@
 ### 7.5 附件通道（与 op-log 分离）
 - `POST /api/blobs`（multipart, 带 hash）→ {ref}；`GET /api/blobs/{hash}`（+ `?variant=thumb`）。
 - message.create 引用 ref；服务端校验 ref 属于当前用户。
+- **剪藏**：`POST /api/clips/parse {url}` → `{parse_id, existing_message_id?, clip}`；`POST /api/clips/download {parse_id, image_indices, video}` → 逐项下载状态。解析结果在服务端内存缓存 15 分钟；媒体下载只允许 `*.xhscdn.com`。
+- 视频流：`GET /api/blobs/{hash}?token=<session>`，支持 Range（`206 Partial Content`）。
 
 ### 7.6 认证与命名空间
 - 每请求 Bearer token → user_id；服务端强制 per-user 过滤；device 撤销即失效。
@@ -207,7 +246,7 @@
 ### 8.2 服务端（Go 单二进制）
 - HTTP API（sync/blobs/auth/roles/messages/search/export）+ 静态 PWA 托管。
 - SQLite（WAL）：ops 日志 + 投影 + FTS5(trigram) 搜索。
-- blob 目录：原图 + 缩略图（+ 二期音频）。
+- blob 目录：原图 + 缩略图 + 剪藏视频/实况 mp4（+ 二期音频）。
 - 可选 WebSocket 通知。
 - 无外部运行时依赖（单二进制），利于最终 fpk。
 
@@ -243,7 +282,9 @@
 - 存储边界：**服务端明文**；能碰 NAS 磁盘 / shell 者（fnOS 管理员=用户自己）可读——已接受该边界。
 - 角色上锁（二期）= 客户端 UI 锁，非 E2EE。
 - 外接 AI/ASR（二期）= opt-in 默认关；开启时内容离开 NAS 到 provider，需用户知情。
-- 配额：单附件 20MB / 每用户 5GB，防滥用。
+- 配额：单附件 20MB / 每用户 5GB，防滥用；剪藏视频 200MB/条（可配）。
+- 链接剪藏：只请求小红书公开分享页，不保存账号 Cookie；媒体下载域名白名单 `*.xhscdn.com`（防 SSRF）；仅个人收藏，不做批量抓取或再发布。
+- 视频播放：blob GET 允许同源 `?token=<session>` 换取 Range 流；token 不写入日志、不出本机。
 - 审计：登录 / 建号 / 撤销设备留痕。
 
 ---
@@ -276,7 +317,7 @@
 | M0 本地核心 | Go server + PWA 壳 + 认证 + op-log 同步 + 文本消息 | 本地双端离线记→联网收敛一致 |
 | M1 v1 完整 | 角色/图片/待办/日历/搜索/离线/网页/设置/导出 | v1 功能全通 + 配额/隔离验证 |
 | M2 部署上线 | fpk 打包 + fnOS 安装 + fn-knock/DDNS 远程 + 每周备份轮转 | 真机 fpk 起停/升级/备份恢复验证 |
-| M3 二期 | 语音+ASR / AI 回顾 / Web Push 提醒 / 上锁 / 心情位置等 / 背景气泡 | 各 opt-in 功能可用且默认关 |
+| M3 二期 | 语音+ASR / AI 回顾 / Web Push 提醒 / 上锁 / 心情位置等 / 背景气泡 / **链接剪藏（小红书，优先）** | 各 opt-in 功能可用且默认关；链接剪藏单条图文/视频可稳定解析、入库、播放与重试 |
 | M4 三期 | 原生 iOS/macOS/Windows（照协议）+ 可选 E2EE | 原生端与 PWA 同步一致 |
 
 ---
@@ -289,6 +330,9 @@
 - R4 外接 AI/ASR 隐私：opt-in + 知情；默认关。
 - R5 tombstone GC 与长期离线设备：保留窗口需定（建议 ≥90 天或全设备 ack）。
 - R6 浏览器存储被清：全量重建流量 / 时间需限流与进度提示。
+- R7 小红书 `xsec_token` 短期有效：旧链接会跳 404；产品只接受新复制链接，失败分类提示，不硬撞风控。
+- R8 公开分享页结构/图片规格可能改版：解析器独立成模块并保留「结构变化」错误；无水印原图依赖 `ext` 签名，缺失时退回 1080 带水印并提示。
+- R9 剪藏视频体积：单条上限 200MB，超限保留文案/封面；视频流式播放依赖 Range 与同源 token。
 
 ---
 
