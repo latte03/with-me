@@ -55,10 +55,10 @@ if [ "$CHECK_ONLY" = 1 ]; then
   exit 0
 fi
 
-# —— 1. 前端 ——
+# —— 1. 前端（版本号注入设置页）——
 cd "$ROOT/web"
 [ -d node_modules ] || pnpm install --ignore-scripts
-pnpm build
+VITE_APP_VERSION="$ver" pnpm build
 
 # —— 2. 后端：linux/amd64 纯静态（NAS 上没有 Go 工具链，必须在这台机器编好）——
 case "$(uname -s)" in

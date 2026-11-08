@@ -5,6 +5,7 @@ import { onSync, syncNow } from '../sync.ts'
 import type { AdminUser, DeviceInfo, MeInfo } from '../types.ts'
 import { confirmModal, download, el, esc, formModal, icon, toast } from './dom.ts'
 import { setThemePref, themePref, type ThemePref } from '../theme.ts'
+import { APP_VERSION } from '../version.ts'
 
 export function mountSettings(root: HTMLElement, onLogout: () => void): () => void {
   const session = getSession()
@@ -43,6 +44,7 @@ export function mountSettings(root: HTMLElement, onLogout: () => void): () => vo
           <div class="user-list"></div>
           <div class="btn-row"><button class="btn ghost new-user">＋ 建账号</button></div>
         </section>
+        <p class="about dim small-text">与我 · 版本 ${esc(APP_VERSION)}</p>
       </div>
     </div>`)
   root.appendChild(view)

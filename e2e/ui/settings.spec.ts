@@ -29,4 +29,7 @@ test('settings: quota, devices, admin create user, export download', async ({ pa
   // export json triggers a download
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('.exp-json')]);
   expect(dl.suggestedFilename()).toContain('.json');
+
+  // 版本号在设置页最后一行；出包时由 build-fpk.sh 注入，本地构建显示 dev
+  await expect(page.locator('.about')).toHaveText(/^与我 · 版本 (dev|\d+\.\d+\.\d+)$/);
 });
