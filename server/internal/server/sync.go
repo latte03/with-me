@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -130,6 +131,7 @@ func applyOp(tx *sql.Tx, userID string, cursor int64, typ string, payload json.R
 			Name      string `json:"name"`
 			Avatar    string `json:"avatar"`
 			Color     string `json:"color"`
+			Kind      string `json:"kind"`
 			Pinned    bool   `json:"pinned"`
 			Hidden    bool   `json:"hidden"`
 			CreatedAt string `json:"created_at"`
@@ -141,23 +143,27 @@ func applyOp(tx *sql.Tx, userID string, cursor int64, typ string, payload json.R
 		if p.ID == "" || p.Name == "" {
 			return fmt.Errorf("role.create requires id and name")
 		}
-		_, err := tx.Exec(`INSERT INTO roles(user_id, id, name, avatar, color, pinned, hidden, deleted, created_at, updated_at, version)
-			VALUES(?,?,?,?,?,?,?,0,?,?,?)
+		if p.Kind != "" && p.Kind != "clips" {
+			return fmt.Errorf("invalid role kind %q", p.Kind)
+		}
+		_, err := tx.Exec(`INSERT INTO roles(user_id, id, name, avatar, color, kind, pinned, hidden, deleted, created_at, updated_at, version)
+			VALUES(?,?,?,?,?,?,?,?,0,?,?,?)
 			ON CONFLICT(user_id, id) DO UPDATE SET name=excluded.name, avatar=excluded.avatar, color=excluded.color,
-			pinned=excluded.pinned, hidden=excluded.hidden, deleted=0, updated_at=excluded.updated_at, version=excluded.version`,
-			userID, p.ID, p.Name, p.Avatar, p.Color, p.Pinned, p.Hidden, p.CreatedAt, p.UpdatedAt, cursor)
+			kind=excluded.kind, pinned=excluded.pinned, hidden=excluded.hidden, deleted=0, updated_at=excluded.updated_at, version=excluded.version`,
+			userID, p.ID, p.Name, p.Avatar, p.Color, p.Kind, p.Pinned, p.Hidden, p.CreatedAt, p.UpdatedAt, cursor)
 		return err
 	case "message.create":
 		var p struct {
-			ID            string `json:"id"`
-			RoleID        string `json:"role_id"`
-			Type          string `json:"type"`
-			Text          string `json:"text"`
-			AttachmentRef string `json:"attachment_ref"`
-			Side          string `json:"side"`
-			TodoDone      bool   `json:"todo_done"`
-			CreatedAt     string `json:"created_at"`
-			UpdatedAt     string `json:"updated_at"`
+			ID            string          `json:"id"`
+			RoleID        string          `json:"role_id"`
+			Type          string          `json:"type"`
+			Text          string          `json:"text"`
+			AttachmentRef string          `json:"attachment_ref"`
+			Meta          json.RawMessage `json:"meta"`
+			Side          string          `json:"side"`
+			TodoDone      bool            `json:"todo_done"`
+			CreatedAt     string          `json:"created_at"`
+			UpdatedAt     string          `json:"updated_at"`
 		}
 		if err := json.Unmarshal(payload, &p); err != nil {
 			return err
@@ -165,7 +171,7 @@ func applyOp(tx *sql.Tx, userID string, cursor int64, typ string, payload json.R
 		if p.ID == "" || p.RoleID == "" {
 			return fmt.Errorf("message.create requires id and role_id")
 		}
-		if p.Type != "text" && p.Type != "image" && p.Type != "todo" {
+		if p.Type != "text" && p.Type != "image" && p.Type != "todo" && p.Type != "clip" {
 			return fmt.Errorf("invalid message type %q", p.Type)
 		}
 		if p.Side == "" {
@@ -180,13 +186,31 @@ func applyOp(tx *sql.Tx, userID string, cursor int64, typ string, payload json.R
 				return fmt.Errorf("attachment_ref not owned by user")
 			}
 		}
-		_, err := tx.Exec(`INSERT INTO messages(user_id, id, role_id, type, text, todo_done, attachment_ref, side, deleted, created_at, updated_at, version)
-			VALUES(?,?,?,?,?,?,?,?,0,?,?,?)
+		metaJSON, platform, noteID := "", "", ""
+		if p.Type == "clip" {
+			m, err := validateClipMeta(tx, userID, p.Meta)
+			if err != nil {
+				return err
+			}
+			metaJSON = string(m)
+			platform = clipMetaString(p.Meta, "platform")
+			noteID = clipMetaString(p.Meta, "note_id")
+		} else if len(p.Meta) > 0 && string(p.Meta) != "null" {
+			return fmt.Errorf("meta is only allowed for clip messages")
+		}
+		_, err := tx.Exec(`INSERT INTO messages(user_id, id, role_id, type, text, todo_done, attachment_ref, meta, side, deleted, created_at, updated_at, version)
+			VALUES(?,?,?,?,?,?,?,?,?,0,?,?,?)
 			ON CONFLICT(user_id, id) DO UPDATE SET role_id=excluded.role_id, type=excluded.type, text=excluded.text,
-			todo_done=excluded.todo_done, attachment_ref=excluded.attachment_ref, side=excluded.side, deleted=0,
+			todo_done=excluded.todo_done, attachment_ref=excluded.attachment_ref, meta=excluded.meta, side=excluded.side, deleted=0,
 			updated_at=excluded.updated_at, version=excluded.version`,
-			userID, p.ID, p.RoleID, p.Type, p.Text, p.TodoDone, p.AttachmentRef, p.Side, p.CreatedAt, p.UpdatedAt, cursor)
-		return err
+			userID, p.ID, p.RoleID, p.Type, p.Text, p.TodoDone, p.AttachmentRef, metaJSON, p.Side, p.CreatedAt, p.UpdatedAt, cursor)
+		if err != nil {
+			return err
+		}
+		if platform != "" && noteID != "" {
+			return upsertClip(tx, userID, platform, noteID, p.ID, p.UpdatedAt)
+		}
+		return nil
 	case "role.update", "message.update", "role.delete", "message.delete", "todo.set_done":
 		table := "roles"
 		if strings.HasPrefix(typ, "message.") || typ == "todo.set_done" {
@@ -207,9 +231,12 @@ func applyOp(tx *sql.Tx, userID string, cursor int64, typ string, payload json.R
 		fields := map[string]any{}
 		switch typ {
 		case "role.update":
-			f, err := extractFields(p.Fields, map[string]string{"name": "string", "avatar": "string", "color": "string", "pinned": "bool", "hidden": "bool"})
+			f, err := extractFields(p.Fields, map[string]string{"name": "string", "avatar": "string", "color": "string", "kind": "string", "pinned": "bool", "hidden": "bool"})
 			if err != nil {
 				return err
+			}
+			if k, ok := f["kind"].(string); ok && k != "" && k != "clips" {
+				return fmt.Errorf("invalid role kind %q", k)
 			}
 			fields = f
 		case "message.update":
@@ -218,6 +245,20 @@ func applyOp(tx *sql.Tx, userID string, cursor int64, typ string, payload json.R
 				return err
 			}
 			fields = f
+			if raw, ok := p.Fields["meta"]; ok {
+				var msgType string
+				if err := tx.QueryRow(`SELECT type FROM messages WHERE user_id = ? AND id = ? AND deleted = 0`, userID, p.ID).Scan(&msgType); err != nil {
+					return fmt.Errorf("message not found")
+				}
+				if msgType != "clip" {
+					return fmt.Errorf("meta is only allowed for clip messages")
+				}
+				m, err := validateClipMeta(tx, userID, raw)
+				if err != nil {
+					return err
+				}
+				fields["meta"] = string(m)
+			}
 		case "role.delete", "message.delete":
 			fields["deleted"] = true
 		case "todo.set_done":
@@ -226,10 +267,90 @@ func applyOp(tx *sql.Tx, userID string, cursor int64, typ string, payload json.R
 			}
 			fields["todo_done"] = *p.Done
 		}
-		return mergeProjection(tx, table, userID, p.ID, fields, p.UpdatedAt, cursor)
+		if err := mergeProjection(tx, table, userID, p.ID, fields, p.UpdatedAt, cursor); err != nil {
+			return err
+		}
+		if typ == "message.delete" {
+			// Only remove the dedup mapping if it still belongs to this message.
+			tx.Exec(`DELETE FROM clips WHERE user_id = ? AND message_id = ?`, userID, p.ID)
+		}
+		if typ == "message.update" {
+			if raw, ok := p.Fields["meta"]; ok {
+				platform := clipMetaString(raw, "platform")
+				noteID := clipMetaString(raw, "note_id")
+				if platform != "" && noteID != "" {
+					return upsertClip(tx, userID, platform, noteID, p.ID, p.UpdatedAt)
+				}
+			}
+		}
+		return nil
 	default:
 		return fmt.Errorf("unknown op type %q", typ)
 	}
+}
+
+const maxClipMeta = 64 << 10
+
+// validateClipMeta checks the minimum shape and that referenced blobs belong to the user.
+func validateClipMeta(tx *sql.Tx, userID string, raw json.RawMessage) (json.RawMessage, error) {
+	if len(raw) == 0 || len(raw) > maxClipMeta {
+		return nil, fmt.Errorf("clip meta required (max %d bytes)", maxClipMeta)
+	}
+	var m struct {
+		Platform string `json:"platform"`
+		NoteID   string `json:"note_id"`
+		Media    []struct {
+			Hash      string `json:"hash"`
+			LiveHash  string `json:"live_hash"`
+			CoverHash string `json:"cover_hash"`
+		} `json:"media"`
+	}
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil, fmt.Errorf("invalid clip meta: %w", err)
+	}
+	if m.Platform == "" || m.NoteID == "" {
+		return nil, fmt.Errorf("clip meta requires platform and note_id")
+	}
+	for _, media := range m.Media {
+		for _, h := range []string{media.Hash, media.LiveHash, media.CoverHash} {
+			if h == "" {
+				continue
+			}
+			if !validHash(h) {
+				return nil, fmt.Errorf("clip meta has invalid blob hash")
+			}
+			var one int
+			if err := tx.QueryRow(`SELECT 1 FROM attachments WHERE user_id = ? AND hash = ?`, userID, h).Scan(&one); err != nil {
+				return nil, fmt.Errorf("clip meta references an unknown attachment")
+			}
+		}
+	}
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, raw); err != nil {
+		return nil, fmt.Errorf("invalid clip meta: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+func clipMetaString(raw json.RawMessage, key string) string {
+	var m map[string]any
+	if json.Unmarshal(raw, &m) != nil {
+		return ""
+	}
+	v, _ := m[key].(string)
+	return v
+}
+
+func upsertClip(tx *sql.Tx, userID, platform, noteID, messageID, updatedAt string) error {
+	if updatedAt == "" {
+		updatedAt = nowUTC()
+	}
+	_, err := tx.Exec(`INSERT INTO clips(user_id, platform, note_id, message_id, updated_at)
+		VALUES(?,?,?,?,?)
+		ON CONFLICT(user_id, platform, note_id)
+		DO UPDATE SET message_id=excluded.message_id, updated_at=excluded.updated_at`,
+		userID, platform, noteID, messageID, updatedAt)
+	return err
 }
 
 func extractFields(raw map[string]json.RawMessage, spec map[string]string) (map[string]any, error) {
@@ -282,9 +403,9 @@ func mergeProjection(tx *sql.Tx, table, userID, id string, fields map[string]any
 	// update arrived before create (cross-device ordering): insert a skeleton row
 	all := map[string]any{"created_at": updatedAt, "updated_at": updatedAt, "version": cursor, "deleted": false}
 	if table == "roles" {
-		all["name"], all["avatar"], all["color"], all["pinned"], all["hidden"] = "", "", "", false, false
+		all["name"], all["avatar"], all["color"], all["kind"], all["pinned"], all["hidden"] = "", "", "", "", false, false
 	} else {
-		all["role_id"], all["type"], all["text"], all["todo_done"], all["attachment_ref"], all["side"] = "", "text", "", false, "", "right"
+		all["role_id"], all["type"], all["text"], all["todo_done"], all["attachment_ref"], all["meta"], all["side"] = "", "text", "", false, "", "", "right"
 	}
 	for k, v := range fields {
 		all[k] = v
