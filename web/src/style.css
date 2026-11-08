@@ -72,7 +72,7 @@ html, body {
   overscroll-behavior: none;
   -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
 }
-#app { height: 100dvh; }
+#app { height: 100dvh; padding-top: env(safe-area-inset-top); background: var(--bg); }
 button { font: inherit; color: inherit; background: none; border: none; padding: 0; cursor: pointer; }
 button, .tab, .role-row, .day-row, .search-row, .menu-item, .month-cell {
   transition: background-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease),
@@ -81,11 +81,13 @@ button, .tab, .role-row, .day-row, .search-row, .menu-item, .month-cell {
 button:active { transform: scale(0.98); }
 :focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
 input, textarea {
-  font: inherit; color: var(--text); background: var(--raised);
+  /* iOS 聚焦 <16px 的控件会强制放大整页；17px 为移动端下限，桌面端也保底 16px */
+  font: inherit; font-size: 16px; -webkit-text-size-adjust: 100%; color: var(--text); background: var(--raised);
   border: 1px solid var(--line); border-radius: var(--r-sm);
   padding: 8px 12px; outline: none; width: 100%;
   transition: border-color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
 }
+button, a, input, textarea, select { touch-action: manipulation; }
 input:focus, textarea:focus { border-color: var(--accent-ink); }
 input::placeholder, textarea::placeholder { color: var(--muted); }
 h1, h2, h3, p { margin: 0; }
@@ -123,13 +125,14 @@ h1, h2, h3, p { margin: 0; }
 .side { display: contents; }
 .brand { display: none; }
 .side-roles { display: none; }
-.view { flex: 1; min-height: 0; overflow-y: auto; scroll-padding-top: 68px; scroll-padding-bottom: 88px; }
+.view { flex: 1; min-height: 0; overflow-y: auto; background: var(--bg); scroll-padding-top: 68px; scroll-padding-bottom: 88px; }
 .view > * { animation: rise var(--t-slow) var(--ease); }
 .tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
   display: flex; gap: 4px; margin: 0 auto calc(8px + env(safe-area-inset-bottom));
   padding: 4px; width: min(520px, calc(100% - 24px));
   background: var(--card); border: 1px solid var(--line); border-radius: var(--r-lg);
+  transform: translateZ(0); backface-visibility: hidden;
 }
 .shell[data-route='chat'] .tabbar, .shell[data-route='search'] .tabbar { display: none; }
 .tab {
@@ -253,6 +256,7 @@ h1, h2, h3, p { margin: 0; }
 .search-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .search-snippet { font-size: 14px; color: var(--text); word-break: break-all; }
 .settings .set-body { display: flex; flex-direction: column; gap: 16px; max-width: 720px; margin: 0 auto; }
+.settings .about { text-align: center; color: var(--muted); margin-top: 8px; font-family: var(--mono); }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 20px; display: flex; flex-direction: column; gap: 12px; }
 .card h3 { font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 8px; color: var(--secondary); }
 .card h3 svg { color: var(--muted); }
@@ -314,17 +318,23 @@ h1, h2, h3, p { margin: 0; }
   .composer-row { --ctl: 44px; }
   .menu-item { min-height: 44px; }
   /* 移动端字号整体抬一档：真机上 15px 基准 + 11–13px 辅助文本偏小 */
-  html, body { font-size: 16px; }
+  html, body { font-size: 17px; }
   /* iOS 聚焦时控件 <16px 会自动放大整个页面 */
-  input, textarea, select { font-size: 16px; }
-  .small-text, .time-sep, .search-note, .quota-text, .gal-count, .role-time, .day-role { font-size: 13px; }
-  .role-name { font-size: 16px; }
-  .role-preview, .search-snippet, .day-preview { font-size: 15px; }
-  .card h3, .seg button, .btn { font-size: 15px; }
-  .btn.small { font-size: 13px; }
-  .form-row { font-size: 14px; }
-  .auth-sub, .auth-err, .field-err { font-size: 14px; }
-  .tag, .cell-preview, .cell-more, .cell-num { font-size: 12px; }
+  input, textarea, select { font-size: 17px; }
+  .msg-text { font-size: 17px; }
+  .small-text, .time-sep, .search-note, .quota-text, .gal-count, .role-time, .day-role { font-size: 14px; }
+  .role-name { font-size: 17px; }
+  .role-preview, .search-snippet, .day-preview { font-size: 16px; }
+  .card h3, .seg button, .btn { font-size: 16px; }
+  .btn.small { font-size: 14px; }
+  .form-row { font-size: 15px; }
+  .auth-sub, .auth-err, .field-err { font-size: 15px; }
+  .tag, .cell-preview, .cell-more, .cell-num { font-size: 13px; }
+  .tab { font-size: 12px; }
+}
+/* 触屏设备即使宽度超过 1023（如 iPad 横屏）也按移动端字号处理 */
+@media (pointer: coarse) {
+  input, textarea, select { font-size: 17px; }
 }
 /* desktop: sidebar (brand + nav + conversations) + fluid main pane */
 @media (min-width: 1024px) {
@@ -356,6 +366,7 @@ h1, h2, h3, p { margin: 0; }
   .month-cell { min-height: 96px; }
   .settings .set-body { max-width: 1040px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
   .settings .card.admin-card, .settings .card.storage-card { grid-column: 1 / -1; }
+  .settings .about { grid-column: 1 / -1; }
   .search-head, .search-results { max-width: 860px; }
   .gal-grid { grid-template-columns: repeat(6, 1fr); gap: 4px; }
 }

@@ -19,10 +19,13 @@ export type Route =
   | { view: 'settings' }
 
 let route: Route = { view: 'chats' }
-let cleanup: (() => void) | null = null
+let shellEl: HTMLElement | null = null
+let mainEl: HTMLElement | null = null
+let viewCleanup: (() => void) | null = null
+let sideCleanup: (() => void) | null = null
+let authCleanup: (() => void) | null = null
 const app = document.getElementById('app') as HTMLElement
 const mq = window.matchMedia('(min-width: 1024px)')
-let sideCleanup: (() => void) | null = null
 mq.addEventListener('change', () => render())
 
 function routeToHash(r: Route): string {
@@ -63,7 +66,8 @@ function sameRoute(a: Route, b: Route): boolean {
 export function nav(r: Route): void {
   route = r
   const h = routeToHash(r)
-  if (location.hash !== h) location.hash = h
+  // standalone PWA 里给 location.hash 赋值会走原生片段导航，切页会闪白；pushState 不触发重绘
+  if (location.hash !== h) history.pushState(null, '', h)
   render()
 }
 
@@ -77,14 +81,7 @@ function onHashNav(): void {
 window.addEventListener('hashchange', onHashNav)
 window.addEventListener('popstate', onHashNav)
 
-function render(): void {
-  cleanup?.()
-  cleanup = null
-  app.innerHTML = ''
-  if (!getSession()) {
-    cleanup = mountAuth(app, () => void boot())
-    return
-  }
+function buildShell(): void {
   const shell = el(`
     <div class="shell" data-route="${route.view}">
       <aside class="side">
@@ -98,19 +95,59 @@ function render(): void {
       </aside>
       <main class="view"></main>
     </div>`)
-  app.appendChild(shell)
-  const main = shell.querySelector('.view') as HTMLElement
+  app.replaceChildren(shell)
+  shell.querySelectorAll('.tab').forEach((b) => {
+    const t = (b as HTMLElement).dataset.tab as Route['view']
+    b.addEventListener('click', () => nav({ view: t } as Route))
+  })
+  shellEl = shell
+  mainEl = shell.querySelector('.view') as HTMLElement
+}
+
+function unmountShell(): void {
+  viewCleanup?.()
+  viewCleanup = null
+  sideCleanup?.()
+  sideCleanup = null
+  shellEl?.remove()
+  shellEl = null
+  mainEl = null
+}
+
+function render(): void {
+  if (!getSession()) {
+    unmountShell()
+    authCleanup?.()
+    authCleanup = null
+    app.replaceChildren()
+    authCleanup = mountAuth(app, () => void boot())
+    return
+  }
+  authCleanup?.()
+  authCleanup = null
+  if (!shellEl) buildShell()
+  const shell = shellEl as HTMLElement
+  const main = mainEl as HTMLElement
+
+  shell.dataset.route = route.view
   const activeTab = route.view === 'chat' || route.view === 'search' || route.view === 'gallery' ? 'chats' : route.view
   shell.querySelectorAll('.tab').forEach((b) => {
     const t = (b as HTMLElement).dataset.tab as Route['view']
     b.classList.toggle('active', activeTab === t)
-    b.addEventListener('click', () => nav({ view: t } as Route))
   })
-  let viewCleanup: (() => void) | null = null
+
+  viewCleanup?.()
+  viewCleanup = null
+  main.replaceChildren()
+  main.scrollTop = 0
+
+  sideCleanup?.()
+  sideCleanup = null
   if (mq.matches) {
     const sideRoles = shell.querySelector('.side-roles') as HTMLElement
     sideCleanup = mountRoleList(sideRoles, (r) => nav(r), '会话', route.view === 'chat' ? route.roleId : undefined)
   }
+
   if (route.view === 'chats') viewCleanup = mountChats(main, (r) => nav(r), mq.matches)
   else if (route.view === 'chat') {
     const rid = route.roleId
@@ -119,11 +156,6 @@ function render(): void {
   else if (route.view === 'search') viewCleanup = mountSearch(main, (roleId, messageId) => nav({ view: 'chat', roleId, highlight: messageId }), () => nav({ view: 'chats' }))
   else if (route.view === 'calendar') viewCleanup = mountCalendar(main, (roleId, messageId) => nav({ view: 'chat', roleId, highlight: messageId }))
   else viewCleanup = mountSettings(main, () => nav({ view: 'chats' }))
-  cleanup = () => {
-    viewCleanup?.()
-    sideCleanup?.()
-    sideCleanup = null
-  }
 }
 
 export async function boot(): Promise<void> {

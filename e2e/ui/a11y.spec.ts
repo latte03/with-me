@@ -120,10 +120,16 @@ test('mobile type scale: inputs >=16px (no iOS zoom), body text readable', async
     page.locator(sel).first().evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
 
   await page.goto('/');
-  expect(await fs('input[name=password]')).toBeGreaterThanOrEqual(16);
+  const viewport = await page.locator('meta[name=viewport]').getAttribute('content');
+  expect(viewport).toContain('maximum-scale=1');
+  expect(viewport).toContain('user-scalable=no');
+  expect(await fs('input[name=password]')).toBe(17);
+  expect(
+    await page.locator('input[name=password]').evaluate((el) => getComputedStyle(el).touchAction),
+  ).toBe('manipulation');
 
   await login(page);
-  expect(await fs('html')).toBe(16);
+  expect(await fs('html')).toBe(17);
 
   await page.click('.pill-dots');
   await page.getByText('新角色', { exact: true }).click();

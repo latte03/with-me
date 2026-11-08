@@ -47,3 +47,18 @@ test('calendar day/month aggregates records; search online + offline fallback', 
   await expect(page.locator('.search-row', { hasText: '日历条目甲' }).first()).toBeVisible();
   await context.setOffline(false);
 });
+test('shell is reused across tab switches (no full teardown)', async ({ page }) => {
+  await login(page);
+  await page.evaluate(() => {
+    (document.querySelector('.tabbar') as HTMLElement).dataset.probe = 'kept';
+  });
+  await page.click('.tab[data-tab=calendar]');
+  await expect(page.locator('.head-title')).toHaveText('日历');
+  expect(await page.locator('.tabbar').getAttribute('data-probe')).toBe('kept');
+  await page.click('.tab[data-tab=settings]');
+  await expect(page.locator('.head-title')).toHaveText('设置');
+  expect(await page.locator('.tabbar').getAttribute('data-probe')).toBe('kept');
+  await page.click('.tab[data-tab=chats]');
+  await expect(page.locator('.head-title')).toHaveText('聊天');
+  expect(await page.locator('.tabbar').getAttribute('data-probe')).toBe('kept');
+});
