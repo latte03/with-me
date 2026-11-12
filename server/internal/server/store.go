@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS devices (
 	id TEXT PRIMARY KEY,
 	user_id TEXT NOT NULL REFERENCES users(id),
 	name TEXT NOT NULL DEFAULT '',
+	fingerprint TEXT NOT NULL DEFAULT '',
 	revoked INTEGER NOT NULL DEFAULT 0,
 	last_seq INTEGER NOT NULL DEFAULT 0,
 	last_seen TEXT NOT NULL DEFAULT ''
@@ -138,6 +139,11 @@ func OpenDB(dataDir string) (*sql.DB, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := ensureColumn(db, "devices", "fingerprint", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		db.Close()
+		return nil, err
+	}
+	mergeLegacyDevices(db)
 	backfillClips(db)
 	return db, nil
 }
@@ -165,6 +171,54 @@ func ensureColumn(db *sql.DB, table, column, decl string) error {
 	}
 	_, err = db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + decl)
 	return err
+}
+
+// mergeLegacyDevices 归并旧客户端重复创建的设备行：那时设备身份只存在浏览器存储里，
+// 存储一换就多一行。只处理没有指纹的历史行，按 (user_id, name) 保留最近活跃的一行，
+// 会话迁到保留行上，历史 ops 的 device_id 原样留档。
+func mergeLegacyDevices(db *sql.DB) {
+	rows, err := db.Query(`SELECT user_id, name FROM devices WHERE fingerprint = '' GROUP BY user_id, name HAVING COUNT(*) > 1`)
+	if err != nil {
+		return
+	}
+	type group struct{ userID, name string }
+	var groups []group
+	for rows.Next() {
+		var g group
+		if rows.Scan(&g.userID, &g.name) == nil {
+			groups = append(groups, g)
+		}
+	}
+	rows.Close()
+	for _, g := range groups {
+		var keep string
+		if db.QueryRow(`SELECT id FROM devices WHERE user_id = ? AND name = ? AND fingerprint = ''
+			ORDER BY last_seen DESC, last_seq DESC, rowid DESC LIMIT 1`, g.userID, g.name).Scan(&keep) != nil {
+			continue
+		}
+		losers, err := db.Query(`SELECT id, last_seq FROM devices WHERE user_id = ? AND name = ? AND fingerprint = '' AND id <> ?`,
+			g.userID, g.name, keep)
+		if err != nil {
+			continue
+		}
+		type loser struct {
+			id  string
+			seq int64
+		}
+		var dropped []loser
+		for losers.Next() {
+			var l loser
+			if losers.Scan(&l.id, &l.seq) == nil {
+				dropped = append(dropped, l)
+			}
+		}
+		losers.Close()
+		for _, l := range dropped {
+			db.Exec(`UPDATE sessions SET device_id = ? WHERE device_id = ?`, keep, l.id)
+			db.Exec(`UPDATE devices SET last_seq = MAX(last_seq, ?) WHERE id = ?`, l.seq, keep)
+			db.Exec(`DELETE FROM devices WHERE id = ?`, l.id)
+		}
+	}
 }
 
 // backfillClips rebuilds the clips projection from clip message metadata.

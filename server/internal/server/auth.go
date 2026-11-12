@@ -14,35 +14,76 @@ type userView struct {
 	IsAdmin  bool   `json:"is_admin"`
 }
 
-func (s *Server) createSession(userID, deviceID, deviceName string) (string, error) {
-	if deviceID == "" {
-		deviceID = uuid.NewString()
-	}
-	var owner string
-	var revoked bool
-	err := s.db.QueryRow(`SELECT user_id, revoked FROM devices WHERE id = ?`, deviceID).Scan(&owner, &revoked)
-	switch {
-	case err == sql.ErrNoRows:
-		_, err = s.db.Exec(`INSERT INTO devices(id, user_id, name, last_seen) VALUES(?,?,?,?)`,
-			deviceID, userID, deviceName, nowUTC())
-	case err != nil:
-		return "", err
-	case owner != userID:
-		return "", errDeviceForeign
-	default:
-		_, err = s.db.Exec(`UPDATE devices SET name = ?, revoked = 0, last_seen = ? WHERE id = ?`,
-			deviceName, nowUTC(), deviceID)
-	}
+func (s *Server) createSession(userID, deviceID, deviceName, fingerprint string) (string, error) {
+	id, err := s.resolveDevice(userID, deviceID, deviceName, fingerprint)
 	if err != nil {
 		return "", err
 	}
 	token := newToken()
 	_, err = s.db.Exec(`INSERT INTO sessions(token_hash, user_id, device_id, created_at) VALUES(?,?,?,?)`,
-		hashToken(token), userID, deviceID, nowUTC())
+		hashToken(token), userID, id, nowUTC())
 	if err != nil {
 		return "", err
 	}
 	return token, nil
+}
+
+// resolveDevice 认设备：先用客户端持久 id，再用指纹。浏览器存储被清空、换入口域名、
+// Safari 与主屏 PWA 互换都会让 id 变新，而指纹不变，同一台设备因此只占一行。
+func (s *Server) resolveDevice(userID, deviceID, deviceName, fingerprint string) (string, error) {
+	if deviceID != "" {
+		var owner string
+		err := s.db.QueryRow(`SELECT user_id FROM devices WHERE id = ?`, deviceID).Scan(&owner)
+		switch {
+		case err == nil:
+			if owner != userID {
+				return "", errDeviceForeign
+			}
+			return deviceID, s.touchDevice(deviceID, deviceName, fingerprint)
+		case err == sql.ErrNoRows:
+		default:
+			return "", err
+		}
+	}
+	if fingerprint != "" {
+		id, err := s.deviceBy(`SELECT id FROM devices WHERE user_id = ? AND fingerprint = ? ORDER BY last_seen DESC LIMIT 1`,
+			userID, fingerprint)
+		if err != nil {
+			return "", err
+		}
+		if id == "" && deviceName != "" {
+			// 旧版本留下的行没有指纹，按名字认领一次，认领后补上指纹
+			id, err = s.deviceBy(`SELECT id FROM devices WHERE user_id = ? AND name = ? AND fingerprint = '' ORDER BY last_seen DESC LIMIT 1`,
+				userID, deviceName)
+			if err != nil {
+				return "", err
+			}
+		}
+		if id != "" {
+			return id, s.touchDevice(id, deviceName, fingerprint)
+		}
+	}
+	if deviceID == "" {
+		deviceID = uuid.NewString()
+	}
+	_, err := s.db.Exec(`INSERT INTO devices(id, user_id, name, fingerprint, last_seen) VALUES(?,?,?,?,?)`,
+		deviceID, userID, deviceName, fingerprint, nowUTC())
+	return deviceID, err
+}
+
+func (s *Server) deviceBy(query string, args ...any) (string, error) {
+	var id string
+	err := s.db.QueryRow(query, args...).Scan(&id)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return id, err
+}
+
+func (s *Server) touchDevice(id, name, fingerprint string) error {
+	_, err := s.db.Exec(`UPDATE devices SET name = ?, revoked = 0, last_seen = ?,
+		fingerprint = COALESCE(NULLIF(?, ''), fingerprint) WHERE id = ?`, name, nowUTC(), fingerprint, id)
+	return err
 }
 
 type errString string
@@ -53,10 +94,11 @@ const errDeviceForeign = errString("device belongs to another user")
 
 func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Username   string `json:"username"`
-		Password   string `json:"password"`
-		DeviceID   string `json:"device_id"`
-		DeviceName string `json:"device_name"`
+		Username          string `json:"username"`
+		Password          string `json:"password"`
+		DeviceID          string `json:"device_id"`
+		DeviceName        string `json:"device_name"`
+		DeviceFingerprint string `json:"device_fingerprint"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -82,7 +124,7 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "create user failed")
 		return
 	}
-	token, err := s.createSession(id, req.DeviceID, req.DeviceName)
+	token, err := s.createSession(id, req.DeviceID, req.DeviceName, req.DeviceFingerprint)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "create session failed")
 		return
@@ -98,10 +140,11 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Username   string `json:"username"`
-		Password   string `json:"password"`
-		DeviceID   string `json:"device_id"`
-		DeviceName string `json:"device_name"`
+		Username          string `json:"username"`
+		Password          string `json:"password"`
+		DeviceID          string `json:"device_id"`
+		DeviceName        string `json:"device_name"`
+		DeviceFingerprint string `json:"device_fingerprint"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -119,7 +162,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "user disabled")
 		return
 	}
-	token, err := s.createSession(u.ID, req.DeviceID, req.DeviceName)
+	token, err := s.createSession(u.ID, req.DeviceID, req.DeviceName, req.DeviceFingerprint)
 	if err != nil {
 		if err == errDeviceForeign {
 			writeErr(w, http.StatusBadRequest, err.Error())

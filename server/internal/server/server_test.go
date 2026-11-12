@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -460,6 +461,128 @@ func TestDeviceRevocation(t *testing.T) {
 	}
 	jsonDo(t, ts, "DELETE", "/api/devices/"+uuid.NewString(), token, nil, 404)
 	jsonDo(t, ts, "GET", "/api/me", token, nil, 200)
+}
+
+func TestDeviceFingerprintReidentity(t *testing.T) {
+	_, ts := newTestServer(t)
+	fp := "Safari|iPhone|402x874|Asia/Shanghai|zh-CN|6|5"
+	first := jsonDo(t, ts, "POST", "/api/auth/bootstrap", "", map[string]any{
+		"username": "admin", "password": "admin-pw-123", "device_id": uuid.NewString(),
+		"device_name": "iPhone 浏览器", "device_fingerprint": fp,
+	}, 200)
+	token := first["token"].(string)
+	devID := first["device_id"].(string)
+
+	// 浏览器存储被清空：id 全新、指纹不变 → 认回同一行
+	again := jsonDo(t, ts, "POST", "/api/auth/login", "", map[string]any{
+		"username": "admin", "password": "admin-pw-123", "device_id": uuid.NewString(),
+		"device_name": "iPhone 浏览器", "device_fingerprint": fp,
+	}, 200)
+	if again["device_id"].(string) != devID {
+		t.Fatalf("fingerprint re-identity: want %s got %s", devID, again["device_id"])
+	}
+	if n := len(jsonList(t, ts, "GET", "/api/devices", token, 200)); n != 1 {
+		t.Fatalf("want 1 device got %d", n)
+	}
+
+	// 另一台设备：指纹不同 → 独立一行
+	other := jsonDo(t, ts, "POST", "/api/auth/login", "", map[string]any{
+		"username": "admin", "password": "admin-pw-123", "device_id": uuid.NewString(),
+		"device_name": "Win32 浏览器", "device_fingerprint": "Chrome|Win32|1440x2560|Asia/Shanghai|zh-CN|16|0",
+	}, 200)
+	if other["device_id"].(string) == devID {
+		t.Fatal("different fingerprint must not share a device")
+	}
+	if n := len(jsonList(t, ts, "GET", "/api/devices", token, 200)); n != 2 {
+		t.Fatalf("want 2 devices got %d", n)
+	}
+
+	// 设备行仍归原主：别的账号拿这个 id 登录要被拒
+	jsonDo(t, ts, "POST", "/api/users", token, map[string]any{"username": "u2", "password": "pw123456"}, 200)
+	jsonDo(t, ts, "POST", "/api/auth/login", "", map[string]any{
+		"username": "u2", "password": "pw123456", "device_id": devID, "device_name": "iPhone 浏览器",
+	}, 400)
+}
+
+func TestDeviceLegacyAdoption(t *testing.T) {
+	_, ts := newTestServer(t)
+	token, legacyID := bootstrapAdmin(t, ts)
+	fp := "Safari|iPhone|402x874|Asia/Shanghai|zh-CN|6|5"
+	res := jsonDo(t, ts, "POST", "/api/auth/login", "", map[string]any{
+		"username": "admin", "password": "admin-pw-123", "device_id": uuid.NewString(),
+		"device_name": "测试设备", "device_fingerprint": fp,
+	}, 200)
+	if res["device_id"].(string) != legacyID {
+		t.Fatalf("legacy row not adopted: want %s got %s", legacyID, res["device_id"])
+	}
+	// 认领后指纹已落库，再换 id 也认得回来
+	res2 := jsonDo(t, ts, "POST", "/api/auth/login", "", map[string]any{
+		"username": "admin", "password": "admin-pw-123", "device_id": uuid.NewString(),
+		"device_name": "测试设备", "device_fingerprint": fp,
+	}, 200)
+	if res2["device_id"].(string) != legacyID {
+		t.Fatal("fingerprint not persisted on adoption")
+	}
+	if n := len(jsonList(t, ts, "GET", "/api/devices", token, 200)); n != 1 {
+		t.Fatalf("want 1 device got %d", n)
+	}
+	jsonDo(t, ts, "GET", "/api/me", token, nil, 200)
+}
+
+func TestMergeLegacyDevices(t *testing.T) {
+	s, ts := newTestServer(t)
+	token, keep := bootstrapAdmin(t, ts)
+	var userID string
+	if err := s.db.QueryRow(`SELECT user_id FROM devices WHERE id = ?`, keep).Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	old := "2026-11-07T20:00:00Z"
+	staleTokens := []string{}
+	for i := 0; i < 3; i++ {
+		id := uuid.NewString()
+		if _, err := s.db.Exec(`INSERT INTO devices(id, user_id, name, last_seq, last_seen) VALUES(?,?,?,?,?)`,
+			id, userID, "测试设备", 2, old); err != nil {
+			t.Fatal(err)
+		}
+		tok := fmt.Sprintf("stale-token-%d", i)
+		staleTokens = append(staleTokens, tok)
+		if _, err := s.db.Exec(`INSERT INTO sessions(token_hash, user_id, device_id, created_at) VALUES(?,?,?,?)`,
+			hashToken(tok), userID, id, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// 有指纹的行即使同名也不该被合并
+	fpID := uuid.NewString()
+	s.db.Exec(`INSERT INTO devices(id, user_id, name, fingerprint, last_seen) VALUES(?,?,?,?,?)`,
+		fpID, userID, "测试设备", "Chrome|Win32|1440x2560|Asia/Shanghai|zh-CN|16|0", old)
+
+	mergeLegacyDevices(s.db)
+
+	var n int
+	s.db.QueryRow(`SELECT COUNT(*) FROM devices WHERE user_id = ?`, userID).Scan(&n)
+	if n != 2 {
+		t.Fatalf("want survivor + fingerprinted row = 2, got %d", n)
+	}
+	s.db.QueryRow(`SELECT COUNT(*) FROM devices WHERE id = ?`, keep).Scan(&n)
+	if n != 1 {
+		t.Fatal("most recently seen row must survive")
+	}
+	s.db.QueryRow(`SELECT last_seq FROM devices WHERE id = ?`, keep).Scan(&n)
+	if n != 2 {
+		t.Fatalf("last_seq not carried over: %d", n)
+	}
+	for _, tok := range staleTokens {
+		jsonDo(t, ts, "GET", "/api/me", tok, nil, 200)
+	}
+	devices := jsonList(t, ts, "GET", "/api/devices", token, 200)
+	if len(devices) != 2 {
+		t.Fatalf("devices list: want 2 got %d", len(devices))
+	}
+	mergeLegacyDevices(s.db)
+	s.db.QueryRow(`SELECT COUNT(*) FROM devices WHERE user_id = ?`, userID).Scan(&n)
+	if n != 2 {
+		t.Fatalf("merge must be idempotent, got %d", n)
+	}
 }
 
 func TestBlobs(t *testing.T) {

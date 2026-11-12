@@ -1,33 +1,13 @@
 import { api, apiBlob, getSession } from './api.ts'
 import { notify } from './bus.ts'
 import { del, get, getAll, metaGet, metaPut, put, rq, withTx } from './db.ts'
+import { device } from './device.ts'
 import { sha256Hex } from './hash.ts'
 import { applyOp } from './projection.ts'
 import { uuid } from './uuid.ts'
 import type { BlobRec, Envelope, Message, MessageFields, OpInput, Projection, Role, RoleFields } from './types.ts'
 
 export const MAX_ATTACHMENT = 20 * 1024 * 1024
-const DEVICE_KEY = 'with-me.device'
-
-export interface Device {
-  id: string
-  name: string
-}
-
-export function device(): Device {
-  try {
-    const raw = localStorage.getItem(DEVICE_KEY)
-    if (raw) return JSON.parse(raw) as Device
-  } catch {
-    /* regenerate */
-  }
-  const d: Device = {
-    id: uuid(),
-    name: `${navigator.platform || 'Web'} 浏览器`,
-  }
-  localStorage.setItem(DEVICE_KEY, JSON.stringify(d))
-  return d
-}
 
 export const nowIso = (): string => new Date().toISOString()
 
@@ -192,6 +172,14 @@ export async function uploadPendingBlobs(): Promise<void> {
 
 export async function removeOutbox(opIds: string[]): Promise<void> {
   for (const id of opIds) await del('outbox', id)
+}
+
+export async function rebindOutbox(deviceID: string): Promise<void> {
+  const stale = (await getAll<Envelope>('outbox')).filter((o) => o.device_id !== deviceID)
+  if (stale.length === 0) return
+  await withTx(['outbox'], async (tx) => {
+    for (const o of stale) await rq(tx.objectStore('outbox').put({ ...o, device_id: deviceID }))
+  })
 }
 
 export async function outboxCount(): Promise<number> {

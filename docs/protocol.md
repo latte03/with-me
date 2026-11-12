@@ -13,8 +13,14 @@
 - 幂等：op_id 全局唯一；重复 push 同 op_id 不产生新 cursor。
 
 ## 1. 认证 / 用户 / 设备
-- `POST /api/auth/bootstrap` {username,password} → 仅当系统零用户时成功；创建**管理员**。返回 {token, user:{id,username,is_admin}, device_id}。body 可带 device_id/device_name（客户端生成/提供）。
-- `POST /api/auth/login` {username,password,device_id,device_name} → {token, user, device_id}。创建/复用 device 行 + session。
+- `POST /api/auth/bootstrap` {username,password} → 仅当系统零用户时成功；创建**管理员**。返回 {token, user:{id,username,is_admin}, device_id}。body 可带 device_id/device_name/device_fingerprint（客户端生成/提供）。
+- `POST /api/auth/login` {username,password,device_id,device_name,device_fingerprint} → {token, user, device_id}。创建/复用 device 行 + session。
+- **设备识别（定死）**：一台设备只占一行，与浏览器存储实例无关。
+  - `device_id`：客户端持久化的 uuid；存储被清空/换入口域名/主屏 PWA 与 Safari 互换时会变新，**不可作为唯一身份**。
+  - `device_fingerprint`：客户端派生的稳定串 `浏览器族|platform|屏幕短边x长边|时区|语言|核心数|触点数`。浏览器族归一化（iOS 主屏 PWA 与 Safari 同族）；不含 UA 版本号、devicePixelRatio、窗口尺寸，故浏览器升级/桌面缩放/转屏不换身份。
+  - 服务端认领顺序：① device_id 命中且属本人 → 复用；② 同 user 同 fingerprint 的最近活跃行 → 复用；③ 同 user 同名且 fingerprint 为空的历史行 → 复用并补写指纹；④ 都不中 → 新建行。命中即刷新 name/last_seen 并解除 revoked。
+  - **响应里的 device_id 是权威值**：客户端登录/启动时采纳它覆盖本地 id，并把 outbox 里旧 id 的 op 重绑到新 id（否则 push 会因 device 不属于本人被拒）。
+  - 启动迁移：无指纹的历史重复行按 (user_id,name) 归并，保留最近活跃行，会话迁到保留行，历史 ops 的 device_id 原样留档。
 - `POST /api/auth/password` {old,new} → 200。
 - `GET /api/me` → {user:{id,username,is_admin}, device_id, quota_bytes, used_bytes}。
 - `GET /api/devices` → [{id,name,last_seen,revoked,current(bool)}]。

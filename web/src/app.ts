@@ -1,5 +1,6 @@
 import { getSession } from './api.ts'
-import { closeDB, openDB } from './store.ts'
+import { adoptDevice } from './device.ts'
+import { closeDB, openDB, rebindOutbox } from './store.ts'
 import { startSync } from './sync.ts'
 import { mountAuth } from './ui/auth.ts'
 import { mountCalendar } from './ui/calendar.ts'
@@ -163,6 +164,7 @@ export async function boot(): Promise<void> {
   const s = getSession()
   if (s) {
     await openDB(s.user.id)
+    if (adoptDevice(s.device_id)) await rebindOutbox(s.device_id)
     void navigator.storage?.persist?.()
     startSync()
   }

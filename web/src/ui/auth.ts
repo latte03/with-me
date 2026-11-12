@@ -1,5 +1,5 @@
 import { api, setSession } from '../api.ts'
-import { device } from '../store.ts'
+import { deviceIdentity } from '../device.ts'
 import type { Session } from '../types.ts'
 import { el, icon } from './dom.ts'
 
@@ -46,11 +46,11 @@ export function mountAuth(root: HTMLElement, onDone: () => void): () => void {
     }
     submit.disabled = true
     try {
-      const d = device()
+      const d = deviceIdentity()
       const path = bootstrap ? '/auth/bootstrap' : '/auth/login'
       const s = await api<Session>(path, {
         method: 'POST',
-        body: { username, password, device_id: d.id, device_name: d.name },
+        body: { username, password, device_id: d.id, device_name: d.name, device_fingerprint: d.fingerprint },
       })
       setSession(s)
       onDone()

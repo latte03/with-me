@@ -29,14 +29,21 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
 const pngHash = crypto.createHash('sha256').update(PNG).digest('hex');
 
 const devA = uuid(), devB = uuid(), devU2 = uuid();
+const fpA = 'Safari|iPhone|402x874|Asia/Shanghai|zh-CN|6|5';
+const fpB = 'Chrome|Win32|1440x2560|Asia/Shanghai|zh-CN|16|0';
 // bootstrap admin
-let r = await req('POST', '/api/auth/bootstrap', { body: { username: 'admin', password: 'pw123456', device_id: devA, device_name: 'smokeA' } });
+let r = await req('POST', '/api/auth/bootstrap', { body: { username: 'admin', password: 'pw123456', device_id: devA, device_name: 'smokeA', device_fingerprint: fpA } });
 check('bootstrap admin', r.status === 200 && r.data?.user?.is_admin === true, JSON.stringify(r.data));
 const tokA = r.data?.token;
 // login device B same user
-r = await req('POST', '/api/auth/login', { body: { username: 'admin', password: 'pw123456', device_id: devB, device_name: 'smokeB' } });
+r = await req('POST', '/api/auth/login', { body: { username: 'admin', password: 'pw123456', device_id: devB, device_name: 'smokeB', device_fingerprint: fpB } });
 check('login deviceB', r.status === 200 && !!r.data?.token);
 const tokB = r.data?.token;
+// 同一台设备换了浏览器存储：新 device_id + 同指纹 → 认回原行，不多出一台设备
+r = await req('POST', '/api/auth/login', { body: { username: 'admin', password: 'pw123456', device_id: uuid(), device_name: 'smokeA', device_fingerprint: fpA } });
+check('fingerprint re-identity', r.status === 200 && r.data?.device_id === devA, JSON.stringify(r.data));
+r = await req('GET', '/api/devices', { token: tokA });
+check('no duplicate device row', r.status === 200 && r.data?.length === 2, JSON.stringify(r.data));
 // admin create user2 + login
 r = await req('POST', '/api/users', { token: tokA, body: { username: 'u2', password: 'pw123456' } });
 check('admin create user2', r.status === 200 || r.status === 201, JSON.stringify(r.data));
