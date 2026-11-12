@@ -2,7 +2,7 @@ import { onChange } from '../bus.ts'
 import { clock, groupByDay, monthGrid, previewOf, visibleMessages, weekOf, weekdayName } from '../projection.ts'
 import { getAll } from '../store.ts'
 import type { Message, Role } from '../types.ts'
-import { el, esc, icon } from './dom.ts'
+import { avatarHtml, el, esc, icon } from './dom.ts'
 
 const pad = (n: number) => String(n).padStart(2, '0')
 const keyOf = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
@@ -52,7 +52,7 @@ export function mountCalendar(root: HTMLElement, openMessage: (roleId: string, m
       const r = roles.get(m.role_id)
       const row = el(`
         <button class="day-row">
-          <span class="avatar small" style="background:${esc(r?.color ?? '#7c7cf8')}22">${esc(r?.avatar ?? '💬')}</span>
+          ${avatarHtml(r?.avatar ?? '💬', r?.color ?? '#7c7cf8', true)}
           <span class="day-main"><span class="day-role">${esc(r?.name ?? '已删除角色')}</span><span class="day-preview">${esc(previewOf(m))}</span></span>
           <span class="role-time">${esc(clock(m.created_at))}</span>
         </button>`)

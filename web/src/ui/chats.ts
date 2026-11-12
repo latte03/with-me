@@ -3,7 +3,7 @@ import { previewOf, shortDay, visibleMessages, visibleRoles } from '../projectio
 import { getAll } from '../store.ts'
 import { onSync } from '../sync.ts'
 import type { Message, Role } from '../types.ts'
-import { el, esc, icon, openMenu, openModal } from './dom.ts'
+import { avatarHtml, el, esc, icon, openMenu, openModal } from './dom.ts'
 import { openRoleEditor } from './role-editor.ts'
 
 export function mountRoleList(container: HTMLElement, nav: (r: { view: 'chat'; roleId: string } | { view: 'search' }) => void, label?: string, activeId?: string): () => void {
@@ -29,7 +29,7 @@ export function mountRoleList(container: HTMLElement, nav: (r: { view: 'chat'; r
       const last = lastOf.get(r.id)
       const row = el(`
         <button class="role-row${r.id === activeId ? ' on' : ''}">
-          <span class="avatar" style="background:${esc(r.color)}22">${esc(r.avatar)}</span>
+          ${avatarHtml(r.avatar, r.color)}
           <span class="role-main">
             <span class="role-name">${esc(r.name)}${r.pinned ? `<i class="pin-ico">${icon('pin', 14)}</i>` : ''}</span>
             <span class="role-preview">${last ? esc(previewOf(last)) : '开始记录…'}</span>
@@ -83,7 +83,7 @@ export function mountChats(root: HTMLElement, nav: (r: { view: 'chat'; roleId: s
     const body = el('<div class="manager-list"></div>')
     if (roles.length === 0) body.appendChild(el('<p class="empty">还没有角色</p>'))
     for (const r of roles) {
-      const row = el(`<div class="manager-row"><span class="avatar" style="background:${esc(r.color)}22;color:${esc(r.color)}">${esc(r.avatar)}</span><span class="manager-name">${esc(r.name)}${r.hidden ? '<em class="tag">隐藏</em>' : ''}${r.pinned ? '<em class="tag">置顶</em>' : ''}</span><button class="btn ghost small">编辑</button></div>`)
+      const row = el(`<div class="manager-row">${avatarHtml(r.avatar, r.color)}<span class="manager-name">${esc(r.name)}${r.hidden ? '<em class="tag">隐藏</em>' : ''}${r.pinned ? '<em class="tag">置顶</em>' : ''}</span><button class="btn ghost small">编辑</button></div>`)
       row.querySelector('button')?.addEventListener('click', () => {
         m.close()
         openRoleEditor(r)

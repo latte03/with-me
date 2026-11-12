@@ -1,7 +1,9 @@
 import { getSession } from './api.ts'
 import { adoptDevice } from './device.ts'
-import { closeDB, openDB, rebindOutbox } from './store.ts'
+import { iconId, loadRoleIcons } from './role-icons.ts'
+import { closeDB, getAll, openDB, rebindOutbox } from './store.ts'
 import { startSync } from './sync.ts'
+import type { Role } from './types.ts'
 import { mountAuth } from './ui/auth.ts'
 import { mountCalendar } from './ui/calendar.ts'
 import { mountChat } from './ui/chat.ts'
@@ -165,6 +167,15 @@ export async function boot(): Promise<void> {
   if (s) {
     await openDB(s.user.id)
     if (adoptDevice(s.device_id)) await rebindOutbox(s.device_id)
+    // 只有真的用了图标头像才预载注册表，避免首屏闪兜底；纯 emoji 用户不下载图标 chunk
+    const roles = await getAll<Role>('roles')
+    if (roles.some((r) => !r.deleted && iconId(r.avatar) !== null)) {
+      try {
+        await loadRoleIcons()
+      } catch {
+        // 离线首访取不到 chunk：先渲染兜底，之后由 avatarHtml 触发重试
+      }
+    }
     void navigator.storage?.persist?.()
     startSync()
   }

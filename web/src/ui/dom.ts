@@ -1,3 +1,7 @@
+import { avatarInner } from '../avatar-core.ts'
+import { notify } from '../bus.ts'
+import { iconId, iconsLoaded, loadRoleIcons } from '../role-icons.ts'
+
 export function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 }
@@ -41,6 +45,34 @@ const PATHS: Record<string, string> = {
 export function icon(name: string, size = 18): string {
   const d = PATHS[name] ?? ''
   return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg>`
+}
+
+// 同步来的图标头像可能早于注册表到达：兜底显示之外再补一次懒加载，完成后重绘。
+// 只在本次真的发起加载时挂回调，且失败不重绘，避免 notify → 渲染 → notify 循环。
+let iconsLoadPending = false
+
+function ensureIconsLoaded(): void {
+  if (iconsLoadPending || iconsLoaded()) return
+  iconsLoadPending = true
+  loadRoleIcons().then(
+    () => {
+      iconsLoadPending = false
+      notify()
+    },
+    () => {
+      iconsLoadPending = false
+    },
+  )
+}
+
+// 头像原语：emoji 沿用 ${color}22 底色；图标保持库里原色，底色统一浅色纸，角色色改作环
+export function avatarHtml(avatar: string, color: string, small = false): string {
+  const isIcon = iconId(avatar) !== null
+  if (isIcon) ensureIconsLoaded()
+  const c = esc(color)
+  const style = isIcon ? `--avatar-ring:${c}` : `background:${c}22;color:${c}`
+  const cls = `avatar${small ? ' small' : ''}${isIcon ? ' icon' : ''}`
+  return `<span class="${cls}" style="${style}">${avatarInner(avatar)}</span>`
 }
 
 let toastTimer: number | undefined

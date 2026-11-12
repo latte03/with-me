@@ -8,3 +8,5 @@ data/
 .DS_Store
 # 本地参考截图（第三方界面，不入库）
 微信图片_*.jpg
+# 角色图标数据由 scripts/gen-role-icons.mjs 从 web/vendor/naive-icons 生成
+web/src/generated/

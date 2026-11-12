@@ -1,6 +1,9 @@
+import { AVATAR_FALLBACK } from '../avatar-core.ts'
+import { iconId, loadIconCatalog } from '../role-icons.ts'
 import { createRole, deleteRole, updateRole } from '../store.ts'
 import type { Role } from '../types.ts'
-import { confirmModal, el, esc, openModal, toast } from './dom.ts'
+import { avatarHtml, confirmModal, el, esc, openModal, toast } from './dom.ts'
+import { openIconPicker } from './icon-picker.ts'
 
 export const ROLE_COLORS = ['#7c7cf8', '#f87c7c', '#f8b47c', '#f8e07c', '#8ef87c', '#7cf8e0', '#7cb4f8', '#e07cf8']
 
@@ -14,9 +17,55 @@ export function openRoleEditor(role: Role | null, onSaved?: (id: string) => void
     nameErr.hidden = true
     nameInput.removeAttribute('aria-invalid')
   })
-  body.appendChild(el(`<label class="form-row"><span>头像 emoji</span><input name="avatar" value="${esc(role?.avatar ?? '💬')}" maxlength="8"></label>`))
-  const colorRow = el(`<div class="form-row"><span>颜色</span><div class="swatches"></div></div>`)
   let color = role?.color ?? ROLE_COLORS[0]
+  // 头像改成本地状态（照 color 的写法）：左侧预览按钮开图标面板，右侧保留 emoji 输入，两者并存
+  let avatar = role?.avatar ?? AVATAR_FALLBACK
+  const avatarRow = el(`
+    <div class="form-row">
+      <span>头像</span>
+      <div class="avatar-line">
+        <button type="button" class="avatar-preview" aria-label="选择图标"></button>
+        <input class="avatar-emoji" name="emoji" maxlength="8" aria-label="头像 emoji" placeholder="emoji" autocomplete="off">
+      </div>
+      <span class="small-text">点左侧选图标，或直接输入 emoji</span>
+    </div>`)
+  body.appendChild(avatarRow)
+  const preview = avatarRow.querySelector('.avatar-preview') as HTMLButtonElement
+  const emojiInput = avatarRow.querySelector('.avatar-emoji') as HTMLInputElement
+  const paintPreview = () => {
+    preview.innerHTML = avatarHtml(avatar, color)
+  }
+  // 图标中文名当 emoji 框的 placeholder；面板已加载过目录，这里命中记忆化缓存
+  const showIconName = (id: string) => {
+    emojiInput.placeholder = 'emoji'
+    loadIconCatalog().then(
+      (list) => {
+        if (iconId(avatar) !== id) return // 状态已变，别覆盖用户新输入
+        const meta = list.find((m) => m.id === id)
+        if (meta) emojiInput.placeholder = meta.name
+      },
+      () => {},
+    )
+  }
+  const startId = iconId(avatar)
+  if (startId) showIconName(startId)
+  else emojiInput.value = avatar
+  paintPreview()
+  emojiInput.addEventListener('input', () => {
+    avatar = emojiInput.value
+    emojiInput.placeholder = 'emoji'
+    paintPreview()
+  })
+  preview.addEventListener('click', () => {
+    openIconPicker(avatar, (next) => {
+      avatar = next
+      emojiInput.value = ''
+      paintPreview()
+      const id = iconId(next)
+      if (id) showIconName(id)
+    })
+  })
+  const colorRow = el(`<div class="form-row"><span>颜色</span><div class="swatches"></div></div>`)
   const swatches = colorRow.querySelector('.swatches') as HTMLElement
   const paintSwatches = () => {
     swatches.innerHTML = ''
@@ -25,6 +74,7 @@ export function openRoleEditor(role: Role | null, onSaved?: (id: string) => void
       b.addEventListener('click', () => {
         color = c
         paintSwatches()
+        paintPreview()
       })
       swatches.appendChild(b)
     }
@@ -63,7 +113,7 @@ export function openRoleEditor(role: Role | null, onSaved?: (id: string) => void
     }
     const fields = {
       name,
-      avatar: String(fd.get('avatar') ?? '').trim() || '💬',
+      avatar: avatar.trim() || AVATAR_FALLBACK,
       color,
       pinned: fd.get('pinned') === 'on',
       hidden: fd.get('hidden') === 'on',

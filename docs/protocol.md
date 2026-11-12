@@ -46,6 +46,7 @@
 ### 2.1 op type 与 payload
 - `role.create` payload: `{id,name,avatar,color,kind?,pinned,hidden,created_at,updated_at}`
   - avatar = emoji 字符串或 blob hash；color = css color 字符串；kind 仅允许 `''` 或 `'clips'`（内置剪藏角色标记）。
+  - avatar 也可为 `naive:<id>`（内置图标头像，id 只允许 `[a-z0-9-]+`）：图标数据随前端包分发、不进同步 payload，服务端不校验图标 id；同步字段类型不变（仍是字符串）。
 - `role.update` payload: `{id,updated_at,fields:{name?,avatar?,color?,kind?,pinned?,hidden?}}`
 - `role.delete` payload: `{id,updated_at}` → tombstone(deleted=true)
 - `message.create` payload: `{id,role_id,type:"text"|"image"|"todo"|"clip",text,attachment_ref,width?,height?,meta?,side:"right"|"left",todo_done,created_at,updated_at}`
