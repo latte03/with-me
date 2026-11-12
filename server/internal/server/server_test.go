@@ -463,6 +463,41 @@ func TestDeviceRevocation(t *testing.T) {
 	jsonDo(t, ts, "GET", "/api/me", token, nil, 200)
 }
 
+func TestDevicesListFingerprint(t *testing.T) {
+	_, ts := newTestServer(t)
+	fp := "Safari|iPhone|402x874|Asia/Shanghai|zh-CN|6|5"
+	res := jsonDo(t, ts, "POST", "/api/auth/bootstrap", "", map[string]any{
+		"username": "admin", "password": "admin-pw-123", "device_id": uuid.NewString(),
+		"device_name": "iPhone 浏览器", "device_fingerprint": fp,
+	}, 200)
+	token := res["token"].(string)
+	// 不带指纹登录：该行也要返回 fingerprint 键（空串）
+	jsonDo(t, ts, "POST", "/api/auth/login", "", map[string]any{
+		"username": "admin", "password": "admin-pw-123", "device_id": uuid.NewString(), "device_name": "B",
+	}, 200)
+	devices := jsonList(t, ts, "GET", "/api/devices", token, 200)
+	if len(devices) != 2 {
+		t.Fatalf("want 2 devices got %d", len(devices))
+	}
+	for _, d := range devices {
+		m := d.(map[string]any)
+		f, ok := m["fingerprint"].(string)
+		if !ok {
+			t.Fatalf("device %v: fingerprint key missing or not a string", m["id"])
+		}
+		switch m["name"] {
+		case "iPhone 浏览器":
+			if f != fp {
+				t.Fatalf("fingerprint: want %q got %q", fp, f)
+			}
+		case "B":
+			if f != "" {
+				t.Fatalf("fingerprintless row: want empty got %q", f)
+			}
+		}
+	}
+}
+
 func TestDeviceFingerprintReidentity(t *testing.T) {
 	_, ts := newTestServer(t)
 	fp := "Safari|iPhone|402x874|Asia/Shanghai|zh-CN|6|5"

@@ -204,6 +204,7 @@ export interface BlobRec {
 export interface DeviceInfo {
   id: string
   name: string
+  fingerprint: string
   last_seen: string
   revoked: boolean
   current: boolean

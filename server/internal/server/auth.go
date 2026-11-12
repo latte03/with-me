@@ -218,7 +218,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDevicesList(w http.ResponseWriter, r *http.Request) {
 	a := authFrom(r)
-	rows, err := s.db.Query(`SELECT id, name, last_seen, revoked FROM devices WHERE user_id = ? ORDER BY last_seen DESC`, a.userID)
+	rows, err := s.db.Query(`SELECT id, name, fingerprint, last_seen, revoked FROM devices WHERE user_id = ? ORDER BY last_seen DESC`, a.userID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "query failed")
 		return
@@ -226,11 +226,11 @@ func (s *Server) handleDevicesList(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	out := []map[string]any{}
 	for rows.Next() {
-		var id, name, lastSeen string
+		var id, name, fingerprint, lastSeen string
 		var revoked bool
-		rows.Scan(&id, &name, &lastSeen, &revoked)
+		rows.Scan(&id, &name, &fingerprint, &lastSeen, &revoked)
 		out = append(out, map[string]any{
-			"id": id, "name": name, "last_seen": lastSeen, "revoked": revoked, "current": id == a.deviceID,
+			"id": id, "name": name, "fingerprint": fingerprint, "last_seen": lastSeen, "revoked": revoked, "current": id == a.deviceID,
 		})
 	}
 	writeJSON(w, http.StatusOK, out)

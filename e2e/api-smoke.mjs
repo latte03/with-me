@@ -151,6 +151,7 @@ check('me quota', r.status === 200 && r.data?.quota_bytes > 0 && r.data?.used_by
 // device revoke invalidates token
 r = await req('GET', '/api/devices', { token: tokA });
 check('devices list', r.status === 200 && Array.isArray(r.data) && r.data.length >= 2);
+check('devices fingerprint', Array.isArray(r.data) && r.data.every(d => typeof d.fingerprint === 'string') && !!r.data.find(d => d.id === devA)?.fingerprint);
 r = await req('DELETE', `/api/devices/${devB}`, { token: tokA });
 check('device revoke', r.status === 200 || r.status === 204);
 r = await req('GET', '/api/me', { token: tokB });

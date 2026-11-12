@@ -23,7 +23,7 @@
   - 启动迁移：无指纹的历史重复行按 (user_id,name) 归并，保留最近活跃行，会话迁到保留行，历史 ops 的 device_id 原样留档。
 - `POST /api/auth/password` {old,new} → 200。
 - `GET /api/me` → {user:{id,username,is_admin}, device_id, quota_bytes, used_bytes}。
-- `GET /api/devices` → [{id,name,last_seen,revoked,current(bool)}]。
+- `GET /api/devices` → [{id,name,last_seen,revoked,current(bool),fingerprint}]。fingerprint 为设备指纹串，旧客户端/旧行可为空串。
 - `DELETE /api/devices/{id}` → 撤销（该设备 token 失效）。
 - 管理员：
   - `GET /api/users` → [{id,username,is_admin,disabled,created_at}]

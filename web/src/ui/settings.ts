@@ -16,7 +16,8 @@ export function mountSettings(root: HTMLElement, onLogout: () => void): () => vo
         <section class="card">
           <h3>${icon('sync', 16)} 同步</h3>
           <p class="sync-line dim"></p>
-          <div class="btn-row"><button class="btn ghost sync-now">立即同步</button><button class="btn ghost persist">申请持久化存储</button></div>
+          <div class="btn-row"><button class="btn ghost sync-now">立即同步</button><button class="btn ghost persist">保持离线可用</button></div>
+          <p class="dim small-text">防止浏览器清理离线数据</p>
         </section>
         <section class="card">
           <h3>${icon('user', 16)} 账号</h3>
@@ -62,7 +63,7 @@ export function mountSettings(root: HTMLElement, onLogout: () => void): () => vo
   paintTheme()
   view.querySelector('.sync-now')?.addEventListener('click', () => void syncNow())
   view.querySelector('.persist')?.addEventListener('click', () => {
-    void navigator.storage?.persist?.().then((ok) => toast(ok ? '已获得持久化存储' : '浏览器未授予持久化'))
+    void navigator.storage?.persist?.().then((ok) => toast(ok ? '已允许长期保留离线数据' : '浏览器未授予，仍可能被清理'))
   })
   view.querySelector('.pwd')?.addEventListener('click', async () => {
     const v = await formModal('修改密码', [
@@ -97,14 +98,16 @@ export function mountSettings(root: HTMLElement, onLogout: () => void): () => vo
       box.innerHTML = ''
       box.classList.remove('dim')
       for (const d of devices) {
+        const name = d.name || '未命名设备'
+        const fpCode = !d.name && d.fingerprint ? `<span class="dim small-text">${esc(d.fingerprint.slice(0, 6))}</span>` : ''
         const row = el(`
           <div class="device-row${d.revoked ? ' revoked' : ''}">
-            <span class="device-main"><span>${esc(d.name)}${d.current ? '<em class="tag">本机</em>' : ''}${d.revoked ? '<em class="tag">已撤销</em>' : ''}</span>
+            <span class="device-main"><span>${esc(name)}${fpCode}${d.current ? '<em class="tag">本机</em>' : ''}${d.revoked ? '<em class="tag">已撤销</em>' : ''}</span>
             <span class="dim small-text">最近活跃 ${esc(d.last_seen ? new Date(d.last_seen).toLocaleString() : '—')}</span></span>
             ${!d.current && !d.revoked ? '<button class="btn ghost small revoke">撤销</button>' : ''}
           </div>`)
         row.querySelector('.revoke')?.addEventListener('click', async () => {
-          if (await confirmModal(`撤销设备「${d.name}」？其会话将失效。`, '撤销')) {
+          if (await confirmModal(`撤销设备「${name}」？其会话将失效。`, '撤销')) {
             try {
               await api(`/devices/${d.id}`, { method: 'DELETE' })
               toast('已撤销')
