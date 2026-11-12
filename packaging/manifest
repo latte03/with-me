@@ -1,5 +1,5 @@
 appname               = with-me
-version               = 1.0.7
+version               = 1.0.8
 display_name          = 与我
 desc                  = 本地优先的自聊空间：离线可用、多端同步、图片与视频随手记。
 platform              = x86
@@ -10,4 +10,4 @@ desktop_uidir         = ui
 desktop_applaunchname = with-me.Application
 service_port          = 8099
 ctl_stop              = true
-changelog             = UI 整改：会话页快捷新建入口、聊天标题与日历层级、月视图活动点、搜索高亮与计数、桌面聊天列宽、焦点环与深色纸底统一；设置文案与未命名设备兜底；新增 ?dev=1 视口诊断面板。
+changelog             = 设置页新增「视口诊断面板」持久化开关（PWA 启动不带 URL 参数），?dev=1 保留为附加入口；含 1.0.7 的全部 UI 整改。
