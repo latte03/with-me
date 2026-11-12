@@ -1,0 +1,35 @@
+/* ---- dev-only 诊断面板：?dev=1 才随 dev-panel chunk 加载，不进主样式 ---- */
+/* 探针：0 尺寸盒子的 computed padding 就是 env(safe-area-inset-*) 解析后的真值；content-box 免得 padding 被 0 宽高吃掉 */
+.dev-probe {
+  position: fixed; top: 0; left: 0; width: 0; height: 0; box-sizing: content-box;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  visibility: hidden; pointer-events: none;
+}
+/* 贴顶右侧：底部留给 tabbar，调底距时要一直看得见它。z-index 高于 tabbar(20)/fab(15)，低于菜单(60)与弹窗(70) */
+.dev-panel {
+  position: fixed; top: calc(8px + env(safe-area-inset-top)); right: 8px; z-index: 55;
+  display: flex; flex-direction: column; width: min(340px, calc(100vw - 16px)); max-height: 60dvh;
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--r-md);
+  box-shadow: var(--shadow); color: var(--text); font-size: 12px;
+}
+.dev-panel.collapsed { width: auto; max-height: none; }
+.dev-head { display: flex; align-items: center; gap: 4px; flex: none; padding: 4px 6px 4px 12px; border-bottom: 1px solid var(--line); }
+.dev-panel.collapsed .dev-head { border-bottom: none; }
+.dev-toggle { display: flex; align-items: center; gap: 6px; flex: 1; padding: 8px 0; font-family: var(--mono); font-size: 12px; color: var(--accent-ink); text-align: left; }
+.dev-body { display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow-y: auto; padding: 10px 12px 12px; }
+.dev-note { margin: 0; }
+.dev-field { display: flex; flex-direction: column; gap: 6px; }
+.dev-label { font-size: 11px; color: var(--secondary); }
+.dev-slider { display: flex; align-items: center; gap: 8px; }
+/* range 不吃全局 input 的边框/内距；accent-color 让滑块跟随两主题的强调色 */
+.dev-range { flex: 1; min-width: 0; width: auto; height: 24px; padding: 0; border: none; background: none; accent-color: var(--accent); }
+.dev-value { flex: none; min-width: 46px; text-align: right; font-family: var(--mono); font-size: 12px; color: var(--accent-ink); }
+.dev-reset, .dev-copy { flex: none; }
+.dev-readings-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dev-copy { display: inline-flex; align-items: center; gap: 4px; }
+.dev-readings { display: flex; flex-direction: column; margin: 0; }
+.dev-row { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr); gap: 2px 8px; align-items: baseline; padding: 3px 0; border-top: 1px solid var(--line); }
+.dev-row dt { font-size: 11px; color: var(--muted); }
+.dev-val { margin: 0; font-family: var(--mono); font-size: 11px; color: var(--text); text-align: right; word-break: break-all; }
+/* 字号沿用全局 input/textarea 的 16px：iOS 聚焦 <16px 的文本框会缩放整页，把要测的视口真值本身改掉 */
+.dev-fallback { min-height: 96px; font-family: var(--mono); resize: vertical; }

@@ -188,3 +188,9 @@ window.addEventListener('with-me:unauthorized', () => {
   history.replaceState(null, '', location.pathname + location.search)
   render()
 })
+
+// dev-only 诊断面板：显式 ?dev=1 才懒加载（路由走 hash，query 在 location.search）。
+// 不带参数时不渲染、不下载这个 chunk，生产包默认观感零变化。
+if (new URLSearchParams(location.search).has('dev')) {
+  void import('./ui/dev-panel.ts').then((m) => m.mountDevPanel())
+}
