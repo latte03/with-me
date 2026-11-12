@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { applyOp, dayKey, groupByDay, imageSections, monthGrid, searchLocal, thumbSize, timeLabel, weekOf } from '../src/projection.ts'
+import { applyOp, dayKey, dayRoleColors, FALLBACK_ROLE_COLOR, groupByDay, imageSections, monthGrid, searchLocal, thumbSize, timeLabel, weekOf } from '../src/projection.ts'
 import type { Envelope, Message, Projection, Role } from '../src/types.ts'
 
 const empty = (): Projection => ({ roles: {}, messages: {} })
@@ -172,4 +172,27 @@ test('imageSections empty input and single bucket', () => {
   assert.equal(only.length, 1)
   assert.equal(only[0].label, '今天')
   assert.deepEqual(only[0].msgs.map((m) => m.id), ['a', 'b'])
+})
+
+test('dayRoleColors: message order, same-color dedupe, cap 3, missing role fallback', () => {
+  const roles = new Map([
+    ['r1', { ...role('r1'), color: '#111111' }],
+    ['r2', { ...role('r2'), color: '#222222' }],
+    ['r3', { ...role('r3'), color: '#333333' }],
+    ['r4', { ...role('r4'), color: '#444444' }],
+    ['r5', { ...role('r5'), color: '#111111' }],
+  ])
+  const msgs = [
+    msg('a', { role_id: 'r2' }),
+    msg('b', { role_id: 'r1' }),
+    msg('c', { role_id: 'r1' }),
+    msg('d', { role_id: 'r5' }),
+    msg('e', { role_id: 'r3' }),
+    msg('f', { role_id: 'r4' }),
+  ]
+  assert.deepEqual(dayRoleColors(msgs, roles), ['#222222', '#111111', '#333333'])
+  assert.deepEqual(dayRoleColors(msgs, roles, 2), ['#222222', '#111111'])
+  assert.deepEqual(dayRoleColors([msg('x', { role_id: 'r1' }), msg('y', { role_id: 'r5' })], roles), ['#111111'])
+  assert.deepEqual(dayRoleColors([], roles), [])
+  assert.deepEqual(dayRoleColors([msg('x', { role_id: 'gone' })], roles), [FALLBACK_ROLE_COLOR])
 })

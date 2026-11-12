@@ -15,10 +15,10 @@ export function mountChat(root: HTMLElement, roleId: string, highlight: string |
     <div class="chat">
       <header class="chat-head">
         <button class="icon-btn back" aria-label="返回">${icon('back')}</button>
-        <h2 class="chat-title"></h2>
+        <h2 class="chat-title"><i class="title-dot" hidden></i><span class="title-text"></span></h2>
         <button class="icon-btn more" aria-label="更多操作">${icon('dots')}</button>
       </header>
-      <div class="msg-list"></div>
+      <div class="msg-list"><div class="msg-col"></div></div>
       <div class="composer">
         <div class="todo-chip" hidden>${icon('todo', 14)} 待办模式 <button class="chip-x" aria-label="退出待办模式">${icon('close', 14)}</button></div>
         <div class="composer-row">
@@ -31,7 +31,10 @@ export function mountChat(root: HTMLElement, roleId: string, highlight: string |
     </div>`)
   root.appendChild(view)
   const list = view.querySelector('.msg-list') as HTMLElement
-  const title = view.querySelector('.chat-title') as HTMLElement
+  // 消息列内容 wrapper：桌面端收窄居中，滚动容器本身保持全宽
+  const col = view.querySelector('.msg-col') as HTMLElement
+  const titleText = view.querySelector('.title-text') as HTMLElement
+  const titleDot = view.querySelector('.title-dot') as HTMLElement
   const input = view.querySelector('textarea') as HTMLTextAreaElement
   const fileInput = view.querySelector('input[type=file]') as HTMLInputElement
   const chip = view.querySelector('.todo-chip') as HTMLElement
@@ -217,12 +220,15 @@ export function mountChat(root: HTMLElement, roleId: string, highlight: string |
 
   async function paint(forceBottom = false) {
     role = (await getAll<Role>('roles')).find((r) => r.id === roleId)
-    title.textContent = role?.name ?? '会话'
+    titleText.textContent = role?.name ?? '会话'
+    // 角色色圆点：role 还没加载出来时不占位
+    titleDot.hidden = !role
+    titleDot.style.background = role?.color ?? ''
     const msgs = visibleMessages(await getAll<Message>('messages')).filter((m) => m.role_id === roleId)
     const nearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 80
-    list.innerHTML = ''
+    col.innerHTML = ''
     if (msgs.length === 0) {
-      list.appendChild(el('<div class="empty-block"><p>还没有记录</p><p class="dim">像发消息一样，给自己记一条</p></div>'))
+      col.appendChild(el('<div class="empty-block"><p>还没有记录</p><p class="dim">像发消息一样，给自己记一条</p></div>'))
     }
     let lastKey = ''
     let lastTs = 0
@@ -230,14 +236,14 @@ export function mountChat(root: HTMLElement, roleId: string, highlight: string |
       const ts = new Date(m.created_at).getTime()
       const k = dayKey(m.created_at)
       if (k !== lastKey || ts - lastTs > 10 * 60 * 1000) {
-        list.appendChild(el(`<div class="time-sep">${esc(timeLabel(m.created_at))}</div>`))
+        col.appendChild(el(`<div class="time-sep">${esc(timeLabel(m.created_at))}</div>`))
         lastKey = k
       }
       lastTs = ts
-      list.appendChild(bubble(m))
+      col.appendChild(bubble(m))
     }
     if (highlight && !highlighted) {
-      const target = list.querySelector(`[data-id="${CSS.escape(highlight)}"]`) as HTMLElement | null
+      const target = col.querySelector(`[data-id="${CSS.escape(highlight)}"]`) as HTMLElement | null
       if (target) {
         highlighted = true
         target.scrollIntoView({ block: 'center' })

@@ -19,7 +19,7 @@
 .clip-kind.live { color: var(--accent-ink); background: var(--accent-line); }
 .clip-ai { font-size: 10px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
 .clip-date { font-family: var(--mono); font-size: 10px; color: var(--muted); }
-.clip-title { font-family: var(--serif); font-size: 17px; font-weight: 500; line-height: 1.35; word-break: break-word; }
+.clip-title { font-family: var(--sans); font-size: 17px; font-weight: 500; line-height: 1.35; word-break: break-word; }
 .clip-body {
   font-size: 14px; line-height: 1.55; color: var(--secondary); white-space: pre-wrap; word-break: break-word;
   display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;

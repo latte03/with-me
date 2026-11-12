@@ -154,7 +154,7 @@ test('icon avatars keep a light paper background in dark theme; emoji keeps its 
 
   await openNewRole(page, `深色图标${RUN}`);
   await openPicker(page);
-  const paper = 'rgb(250, 237, 205)';
+  const paper = 'rgb(232, 220, 192)';
   await expect(page.locator('.icon-cell').first()).toHaveCSS('background-color', paper);
   await page.fill('.icon-search', '企鹅');
   await page.click('.icon-cell[aria-label="企鹅"]');

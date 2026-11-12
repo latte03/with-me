@@ -27,9 +27,14 @@ test('calendar day/month aggregates records; search online + offline fallback', 
   await page.click('.chat .back');
   await page.click('.tab[data-tab=calendar]');
   await expect(page.locator('.day-row', { hasText: '日历条目甲' })).toBeVisible();
-  // month view renders today's cell with previews (only first 2 shown); drill into today
+  // month view: today's cell carries role-color dots + a record count (preview lines are gone); drill into today
   await page.click('.mode-seg button[data-mode=month]');
-  await expect(page.locator('.month-cell.today .cell-preview').first()).toBeVisible();
+  const todayCell = page.locator('.month-cell.today');
+  await expect(todayCell).toHaveClass(/has-records/);
+  await expect(todayCell.locator('.cell-count')).toHaveText(/^\d+ 条$/);
+  expect(await todayCell.locator('.cell-dots i').count()).toBeGreaterThanOrEqual(1);
+  expect(await todayCell.locator('.cell-dots i').count()).toBeLessThanOrEqual(3);
+  await expect(page.locator('.month-grid .cell-preview')).toHaveCount(0);
   await page.click('.month-cell.today');
   await expect(page.locator('.day-row', { hasText: '日历条目甲' })).toBeVisible();
 

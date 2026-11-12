@@ -54,10 +54,9 @@ export function mountChats(root: HTMLElement, nav: (r: { view: 'chat'; roleId: s
         <h1 class="head-title">聊天</h1>
         <span class="sync-dot" hidden></span>
         <span class="spacer"></span>
-        <span class="pill search-group">
-          <button class="search-pill" aria-label="搜索">${icon('search', 18)}</button>
-          <button class="pill-dots" aria-label="角色菜单">${icon('dots', 18)}</button>
-        </span>
+        <button class="icon-btn search-pill" aria-label="搜索">${icon('search', 18)}</button>
+        <button class="icon-btn new-role" aria-label="新角色">${icon('plus', 18)}</button>
+        <button class="icon-btn pill-dots" aria-label="角色菜单">${icon('dots', 18)}</button>
       </header>
       <div class="chats-body"></div>
     </div>`)
@@ -67,15 +66,18 @@ export function mountChats(root: HTMLElement, nav: (r: { view: 'chat'; roleId: s
   const dots = view.querySelector('.pill-dots') as HTMLElement
   const dot = view.querySelector('.sync-dot') as HTMLElement
 
+  // 新建角色后直接进会话：header 的 ＋、⋯ 菜单、空态与角色管理共用同一个回调
+  const newRole = () => openRoleEditor(null, (id) => nav({ view: 'chat', roleId: id }))
   const menu = (anchor: HTMLElement) =>
     openMenu(
       [
-        { label: '新角色', icon: 'plus', onTap: () => openRoleEditor(null, (id) => nav({ view: 'chat', roleId: id })) },
+        { label: '新角色', icon: 'plus', onTap: newRole },
         { label: '角色管理', icon: 'list', onTap: openManager },
       ],
       anchor,
     )
   searchBtn.addEventListener('click', () => nav({ view: 'search' }))
+  view.querySelector('.new-role')?.addEventListener('click', newRole)
   dots.addEventListener('click', () => menu(dots))
 
   async function openManager() {
@@ -94,14 +96,14 @@ export function mountChats(root: HTMLElement, nav: (r: { view: 'chat'; roleId: s
     const m = openModal('角色管理', body, foot)
     foot.querySelector('.new')?.addEventListener('click', () => {
       m.close()
-      openRoleEditor(null, (id) => nav({ view: 'chat', roleId: id }))
+      newRole()
     })
   }
 
   let offList: (() => void) | null = null
   if (desktop) {
     const empty = el(`<div class="empty-block"><p>从左侧选择一个会话，或新建一条</p><button class="btn primary">＋ 新角色</button></div>`)
-    empty.querySelector('button')?.addEventListener('click', () => openRoleEditor(null, (id) => nav({ view: 'chat', roleId: id })))
+    empty.querySelector('button')?.addEventListener('click', newRole)
     body.appendChild(empty)
   } else {
     offList = mountRoleList(body, nav)

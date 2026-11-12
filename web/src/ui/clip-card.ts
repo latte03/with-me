@@ -55,12 +55,13 @@ export function renderClipCard(m: Message, _ctx: ClipCardContext = {}): HTMLElem
     }
   }
 
+  // 发布日期只在卡片右上（clip-date）出现一次，作者行不再重复
   const author = el(`
     <div class="clip-author-row">
       ${meta.author?.avatar_url ? `<img class="clip-avatar" src="${esc(meta.author.avatar_url)}" alt="" referrerpolicy="no-referrer">` : `<span class="clip-avatar initial">${esc((meta.author?.name || '?').slice(0, 1))}</span>`}
       <div class="clip-author-main">
         <strong>${esc(meta.author?.name || '未知作者')}</strong>
-        <span>${esc(formatPublished(meta.published_at))}${meta.note_type === 'video' ? ' · 视频' : ''}</span>
+        ${meta.note_type === 'video' ? '<span>视频</span>' : ''}
       </div>
     </div>`)
   card.appendChild(author)

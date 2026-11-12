@@ -1,5 +1,5 @@
 import { onChange } from '../bus.ts'
-import { clock, groupByDay, monthGrid, previewOf, visibleMessages, weekOf, weekdayName } from '../projection.ts'
+import { clock, dayRoleColors, FALLBACK_ROLE_COLOR, groupByDay, monthGrid, previewOf, visibleMessages, weekOf, weekdayName } from '../projection.ts'
 import { getAll } from '../store.ts'
 import type { Message, Role } from '../types.ts'
 import { avatarHtml, el, esc, icon } from './dom.ts'
@@ -52,7 +52,7 @@ export function mountCalendar(root: HTMLElement, openMessage: (roleId: string, m
       const r = roles.get(m.role_id)
       const row = el(`
         <button class="day-row">
-          ${avatarHtml(r?.avatar ?? '💬', r?.color ?? '#7c7cf8', true)}
+          ${avatarHtml(r?.avatar ?? '💬', r?.color ?? FALLBACK_ROLE_COLOR, true)}
           <span class="day-main"><span class="day-role">${esc(r?.name ?? '已删除角色')}</span><span class="day-preview">${esc(previewOf(m))}</span></span>
           <span class="role-time">${esc(clock(m.created_at))}</span>
         </button>`)
@@ -129,11 +129,12 @@ export function mountCalendar(root: HTMLElement, openMessage: (roleId: string, m
           }
           const msgs = days.get(k) ?? []
           const d = new Date(`${k}T00:00:00`)
+          // 有记录：浅底 + 角色色点阵（同色去重，最多 3 个）+ 条数；无记录：只留一个 dim 数字
+          const colors = dayRoleColors(msgs, roles)
           const cell = el(`
-            <button class="month-cell${k === todayKey ? ' today' : ''}">
+            <button class="month-cell${msgs.length ? ' has-records' : ''}${k === todayKey ? ' today' : ''}">
               <span class="cell-num">${d.getDate()}</span>
-              ${msgs.slice(0, 2).map((m) => `<span class="cell-preview">${esc(previewOf(m))}</span>`).join('')}
-              ${msgs.length > 2 ? `<span class="cell-more">+${msgs.length - 2}</span>` : ''}
+              ${msgs.length ? `<span class="cell-dots">${colors.map((c) => `<i style="background:${esc(c)}"></i>`).join('')}</span><span class="cell-count">${msgs.length} 条</span>` : ''}
             </button>`)
           cell.addEventListener('click', () => {
             selected = d

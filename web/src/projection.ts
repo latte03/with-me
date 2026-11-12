@@ -100,6 +100,23 @@ export function visibleRoles(roles: Role[]): Role[] {
   return roles.filter((r) => !r.deleted)
 }
 
+// 角色缺失（已删除/尚未同步）时的中性兜底色，日历头像与月格色点共用
+export const FALLBACK_ROLE_COLOR = '#7c7cf8'
+
+// 月格色点阵：按消息先后取角色色，同色去重，最多 limit 个。纯投影，无 DOM。
+export function dayRoleColors(msgs: Message[], roles: ReadonlyMap<string, Role>, limit = 3): string[] {
+  const seen = new Set<string>()
+  const colors: string[] = []
+  for (const m of msgs) {
+    const c = roles.get(m.role_id)?.color || FALLBACK_ROLE_COLOR
+    if (seen.has(c)) continue
+    seen.add(c)
+    colors.push(c)
+    if (colors.length >= limit) break
+  }
+  return colors
+}
+
 export function groupByDay(msgs: Message[]): [string, Message[]][] {
   const map = new Map<string, Message[]>()
   for (const m of visibleMessages(msgs)) {
