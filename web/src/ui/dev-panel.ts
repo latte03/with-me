@@ -1,10 +1,10 @@
-import { clampTabbarExtra, fmtNum, formatReadings, TABBAR_EXTRA_KEY, TABBAR_EXTRA_MAX, TABBAR_EXTRA_MIN, type Reading } from '../dev-panel-core.ts'
+import { clampTabbarExtra, DEV_PANEL_KEY, fmtNum, formatReadings, TABBAR_EXTRA_KEY, TABBAR_EXTRA_MAX, TABBAR_EXTRA_MIN, type Reading } from '../dev-panel-core.ts'
 import { el, esc, icon, toast } from './dom.ts'
 import './dev.css'
 
-// dev-only 诊断面板：只有 ?dev=1 时 app.ts 才动态 import 本模块，生产包默认不渲染也不下载这个 chunk。
+// dev-only 诊断面板：只有开闸（设置页「诊断」开关或 ?dev=1）时 app.ts 才动态 import 本模块，生产包默认不渲染也不下载这个 chunk。
 // 职责只有两件：把真机视口真值读出来（headless 复现不了主屏 PWA 的底距问题），以及用滑杆调 --tabbar-extra
-// （style.css 的 .tabbar margin-bottom 已引用该变量，这里不改任何默认样式）。夹取/格式化在 dev-panel-core.ts。
+// （style.css 的 .tabbar margin-bottom 已引用该变量，这里不改任何默认样式）。夹取/格式化/开闸判定在 dev-panel-core.ts。
 
 interface ReadingRow extends Reading {
   key: string
@@ -136,7 +136,8 @@ export function mountDevPanel(): () => void {
   range.addEventListener('input', () => applyExtra(Number(range.value)))
   panel.querySelector('.dev-reset')?.addEventListener('click', () => applyExtra(0))
   panel.querySelector('.dev-copy')?.addEventListener('click', () => void copyReadings())
-  panel.querySelector('.dev-close')?.addEventListener('click', () => unmount())
+  // 关闭按钮 = 彻底关：走主开关同一条路径，清掉 stored 键，下次启动不再自动出现
+  panel.querySelector('.dev-close')?.addEventListener('click', () => void setDevPanelEnabled(false))
   toggle.addEventListener('click', () => {
     body.hidden = !body.hidden
     toggle.setAttribute('aria-expanded', String(!body.hidden))
@@ -158,4 +159,24 @@ export function mountDevPanel(): () => void {
 
   current = unmount
   return unmount
+}
+
+// 主开关的唯一执行入口（app.ts 开闸 / 设置页勾选 / 面板关闭按钮都走这里）：
+// on=true 幂等挂载；on=false 卸载 + 摘内联变量 + 清 stored 键，即「关闭=彻底关」。
+// 滑杆数值键 TABBAR_EXTRA_KEY 不动，下次打开继续用上次的底距。
+export async function setDevPanelEnabled(on: boolean): Promise<void> {
+  if (on) {
+    // 已挂载就不再重建 DOM：重复开闸不打断正在看的读数与滑杆
+    if (!current) mountDevPanel()
+    return
+  }
+  current?.()
+  current = null
+  // unmount 已摘过一次；这里兜住「没挂载却残留内联变量」的情况
+  document.documentElement.style.removeProperty('--tabbar-extra')
+  try {
+    localStorage.removeItem(DEV_PANEL_KEY)
+  } catch {
+    /* 存储不可写（隐私模式）时至少本次会话已关闭 */
+  }
 }

@@ -1,4 +1,5 @@
 import { getSession } from './api.ts'
+import { DEV_PANEL_KEY, devPanelRequested } from './dev-panel-core.ts'
 import { adoptDevice } from './device.ts'
 import { iconId, loadRoleIcons } from './role-icons.ts'
 import { closeDB, getAll, openDB, rebindOutbox } from './store.ts'
@@ -189,8 +190,22 @@ window.addEventListener('with-me:unauthorized', () => {
   render()
 })
 
-// dev-only 诊断面板：显式 ?dev=1 才懒加载（路由走 hash，query 在 location.search）。
-// 不带参数时不渲染、不下载这个 chunk，生产包默认观感零变化。
-if (new URLSearchParams(location.search).has('dev')) {
-  void import('./ui/dev-panel.ts').then((m) => m.mountDevPanel())
+// dev-only 诊断面板：设置页「诊断」开关（stored 键）或显式 ?dev=1 才懒加载（路由走 hash，query 在 location.search）。
+// 主屏 PWA 启动不带 query，所以 stored 是主事实源；URL 入口进来时补写一次让它粘住，之后不带参数也在。
+// 两者都没有时不渲染、不下载面板 chunk，生产包默认观感零变化。
+let devStored: string | null = null
+try {
+  devStored = localStorage.getItem(DEV_PANEL_KEY)
+} catch {
+  /* 存储读不到（隐私模式）：只认 URL 入口 */
+}
+if (devPanelRequested(location.search, devStored)) {
+  if (devStored !== '1') {
+    try {
+      localStorage.setItem(DEV_PANEL_KEY, '1')
+    } catch {
+      /* 写不进就只本次会话生效 */
+    }
+  }
+  void import('./ui/dev-panel.ts').then((m) => m.setDevPanelEnabled(true))
 }

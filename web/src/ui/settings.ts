@@ -1,4 +1,5 @@
 import { api, apiBlob, clearSession, getSession } from '../api.ts'
+import { DEV_PANEL_KEY } from '../dev-panel-core.ts'
 import { fmtBytes } from '../projection.ts'
 import { closeDB } from '../store.ts'
 import { onSync, syncNow } from '../sync.ts'
@@ -31,6 +32,11 @@ export function mountSettings(root: HTMLElement, onLogout: () => void): () => vo
           </div>
           <p class="dim small-text">自动跟随系统外观</p>
         </section>
+        <section class="card dev-card">
+          <h3>${icon('gear', 16)} 诊断</h3>
+          <label class="check-row"><input type="checkbox" name="dev-panel"><span>视口诊断面板</span></label>
+          <p class="dim small-text">显示视口真值与 tabbar 底距滑杆，仅排查用</p>
+        </section>
         <section class="card">
           <h3>${icon('device', 16)} 设备</h3>
           <div class="device-list dim">加载中…</div>
@@ -61,6 +67,24 @@ export function mountSettings(root: HTMLElement, onLogout: () => void): () => vo
     }),
   )
   paintTheme()
+  // 诊断面板主开关：stored 键是唯一事实源（主屏 PWA 没有 query，?dev=1 只是附加入口）。
+  // 勾选写键 + 懒加载面板 chunk；取消删键并卸载，刷新后不再自动出现。
+  const devCheck = view.querySelector('.dev-card input[name="dev-panel"]') as HTMLInputElement
+  try {
+    devCheck.checked = localStorage.getItem(DEV_PANEL_KEY) === '1'
+  } catch {
+    /* 读不到存储就当未开 */
+  }
+  devCheck.addEventListener('change', () => {
+    const checked = devCheck.checked
+    try {
+      if (checked) localStorage.setItem(DEV_PANEL_KEY, '1')
+      else localStorage.removeItem(DEV_PANEL_KEY)
+    } catch {
+      /* 写不进（隐私模式）也本次会话生效 */
+    }
+    void import('./dev-panel.ts').then((m) => m.setDevPanelEnabled(checked))
+  })
   view.querySelector('.sync-now')?.addEventListener('click', () => void syncNow())
   view.querySelector('.persist')?.addEventListener('click', () => {
     void navigator.storage?.persist?.().then((ok) => toast(ok ? '已允许长期保留离线数据' : '浏览器未授予，仍可能被清理'))
